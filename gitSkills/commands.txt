@@ -1,0 +1,5 @@
+cd ./Projetos/Zion_PDV_Nativo/backend
+git init
+git add ./gitSkills/commands.txt
+git commit -m "Git instructions"
+git push -u origin master
