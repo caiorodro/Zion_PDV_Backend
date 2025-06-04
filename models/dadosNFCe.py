@@ -1,0 +1,89 @@
+from typing import List
+
+from pydantic import BaseModel
+
+from models.FORMAS_PAGTO_IMPRESSAO import FORMAS_PAGTO_IMPRESSAO
+
+
+class dadosNFCe(BaseModel):
+    NUMERO_COMANDA: int
+    CPF: str
+    IE: str
+    DATA_HORA: str
+    NOME_CLIENTE: str
+    ENDERECO: str
+    BAIRRO: str
+    CIDADE: str
+    FORMA_PAGTO: List[FORMAS_PAGTO_IMPRESSAO]
+    NCM: str
+    CFOP: str
+    NATUREZA_OPERACAO: str
+    CODIGO_PRODUTO: str
+    PRODUTO: str
+    QTDE: int
+    PRECO: float
+    TOTAL: float
+    DESCONTO: float
+    TOTAL_QTDE: int
+    TOTAL_VALOR: float
+    TROCO: float
+    COMENTARIOS: str
+    TELEFONE: str
+    ID_EMPRESA: float
+    NUMERO_NF: int
+    SERIE_NF: str
+    CNPJ_EMITENTE: str
+    SERIAL_PROTOCOLO: str
+    NOME_EMITENTE: str
+    NOME_FANTASIA_EMITENTE: str
+    IE_EMITENTE: str
+    ENDERECO_EMITENTE: str
+    BAIRRO_EMITENTE: str
+    CEP_EMITENTE: str
+    CIDADE_EMITENTE: str
+    UF_EMITENTE: str
+    CRT_EMITENTE: str
+    TELEFONE_EMITENTE: str
+    NUMERO_ENDERECO: str
+    UF: str
+    CEP: str
+    EMAIL_CLIENTE: str
+    ENDERECO_TRANSPORTE: str
+    UF_TRANSPORTE: str
+    IE_TRANSPORTE: str
+    CNPJ_TRANSPORTE: str
+    CIDADE_TRANSPORTE: str
+    NOME_FANTASIA_TRANSPORTE: str
+    NOME_TRANSPORTE: str
+    XML: str
+    CHAVE: str
+    CODIGO_IBGE_EMITENTE: str
+    CODIGO_IBGE_DESTINATARIO: str
+    DATA_AUTORIZACAO_NFCE: str
+    ASSINATURA_NFCE: str
+    CST: str
+    ALIQ_ICMS: float
+    ALIQ_INTERNA_ICMS: float
+    MODO_BASE_CALCULO_ICMS_ST: float
+    IVA: float
+    CST_IPI: str
+    ALIQ_IPI: float
+    CST_PIS: str
+    ALIQ_PIS: float
+    CST_COFINS: str
+    ALIQ_COFINS: float
+    CEST: str
+    PROTOCOLO: str
+    FATURAR_TAXA_ENTREGA: int
+    pFCP: float
+    GERAR_DANFE: int
+    DADOS_ADICIONAIS: str
+    DEVOLUCAO: bool
+    CHAVE_NF_DEVOLUCAO: str
+    ID_TRANSPORTE: int
+    ID_TRIBUTO: int
+    vBCSTRet: float
+    vICMSRet: float
+    pST: float
+    TAXA_ENTREGA: float
+    ID_PRODUTO: int
