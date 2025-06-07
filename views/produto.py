@@ -190,8 +190,8 @@ class produto:
                         QTDE=1,
                         PRECO=await self.getPrecoAtacado(
                             getProduto(
-                                rec.ID_PRODUTO,
-                                1)
+                                ID_PRODUTO=rec.ID_PRODUTO,
+                                QTDE=1)
                         ),
                         TOTAL=rec.PRECO_BALCAO,
                         ID_TRIBUTO=rec.ID_TRIBUTO,
