@@ -1052,6 +1052,14 @@ class pedido:
 
         return retorno
 
+    async def getItemPedido(self, item: ctx.mapItemPedido) -> str:
+
+        obsItem = item.OBS_ITEM if item.OBS_ITEM is not None else ''
+        
+        retorno = await self.getDescricaoProduto(item.ID_PRODUTO) + f' {obsItem}'
+
+        return retorno
+    
     async def getPedido(self, filtro: filtroPedido):
         p = ctx.mapPedido
         ip = ctx.mapItemPedido
@@ -1098,7 +1106,7 @@ class pedido:
                 NUMERO_PEDIDO=item.NUMERO_PEDIDO,
                 ID_PRODUTO=item.ID_PRODUTO,
                 ID_TRIBUTO=item.ID_TRIBUTO,
-                DESCRICAO_PRODUTO=await self.getDescricaoProduto(item.ID_PRODUTO),
+                DESCRICAO_PRODUTO=await self.getItemPedido(item),
                 QTDE=int(item.QTDE),
                 PRECO=float(item.PRECO_UNITARIO),
                 TOTAL=float(item.VALOR_TOTAL),

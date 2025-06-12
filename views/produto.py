@@ -137,7 +137,7 @@ class produto:
         filters = [
             p.CODIGO_PRODUTO_PDV == filtro.CODIGO,
             p.PRECO_BALCAO > 0.00,
-            p.PRODUTO_ATIVO == 1,
+            p.PRODUTO_ATIVO == 1
         ]
 
         filtro.CODIGO = filtro.CODIGO.strip()
@@ -171,7 +171,7 @@ class produto:
             filters = [
                 p.CODIGO_PRODUTO == filtro.CODIGO,
                 p.PRECO_BALCAO > 0.00,
-                p.PRODUTO_ATIVO == 1,
+                p.PRODUTO_ATIVO == 1
             ]
 
             row = ctx.session.query(
@@ -200,6 +200,17 @@ class produto:
 
         return lista
 
+    def getSearchList(self, filtro: str) -> List[str]:
+        try:
+            lista = filtro.split(' ')
+
+            lista = [item.strip() for item in lista]
+            lista = [item for item in lista if len(item) > 0]
+
+            return lista
+        except:
+            return [filtro]
+
     async def buscaProdutosSimilares(
         self, filtro: filtroDescricaoProduto
     ) -> List[listaProduto]:
@@ -212,7 +223,10 @@ class produto:
         filters = [p.PRECO_BALCAO > 0.00, p.PRODUTO_ATIVO == 1]
 
         if len(filtro.DESCRICAO) > 0:
-            filters.append(p.DESCRICAO_PRODUTO.like(f"%{filtro.DESCRICAO}%"))
+
+            lista = self.getSearchList(filtro.DESCRICAO)
+
+            [filters.append(p.DESCRICAO_PRODUTO.like(f"%{item}%")) for item in lista]
 
         select1 = select1.filter(*filters)
 
