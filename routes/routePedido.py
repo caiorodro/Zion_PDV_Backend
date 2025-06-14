@@ -11,6 +11,7 @@ from models.Cliente_Endereco_Transporte import Cliente_Endereco_Transporte
 from models.conclusaoPagamento import conclusaoPagamento
 from models.dadosPedido import dadosPedido
 from models.dadosTransporte import dadosTransporte
+from models.dadosUsuario import dadosUsuario
 from models.editCliente import editCliente
 from models.emissaoNFCe import emissaoNFCe
 from models.fechamentoCaixa import fechamentoCaixa
@@ -27,12 +28,12 @@ from models.filtroListaPedido import filtroListaPedido
 from models.filtroListaProduto import filtroListaProduto
 from models.filtroNumeroPedido import filtroNumeroPedido
 from models.filtroPedido import filtroPedido
-from models.filtroProdutoQtde import filtroProdutoQtde
 from models.filtroReforco import filtroReforco
 from models.filtroSangria import filtroSangria
 from models.filtroTransporte import filtroTransporte
 from models.getProduto import getProduto
 from models.impressaoAvulsa import impressaoAvulsa
+from models.itemCaixa import itemCaixa
 from models.itemPedido import itemPedido
 from models.itemTributo import itemTributo
 from models.listaDePagamentos import listaDePagamentos
@@ -205,6 +206,7 @@ async def buscaProdutosSimilares(filtro: filtroDescricaoProduto):
 async def gravaAberturaCaixa(dados: aberturaCaixa):
     _caixa = Caixa()
     retorno = None
+
     try:
         retorno = await _caixa.gravaAberturaCaixa(dados)
     except Exception as ex:
@@ -1021,6 +1023,39 @@ async def buscaPrecoGrade(filtro: getProduto):
 
     return retorno
 
+@router.get('/verificaSenhaAberturaCaixa')
+async def verificaSenhaAberturaCaixa(dados: dadosUsuario):
+    ped = Caixa()
+
+    retorno = False
+
+    try:
+        retorno = await ped.verificaSenhaAberturaCaixa(dados)
+
+    except Exception as ex:
+        raise ex
+
+    finally:
+        del ped
+
+    return retorno
+
+@router.get('/getUsuarioFromCaixa')
+async def getUsuarioFromCaixa(dados: itemCaixa):
+    ped = Caixa()
+
+    retorno = 0
+
+    try:
+        retorno = await ped.getUsuarioFromCaixa(dados)
+
+    except Exception as ex:
+        raise ex
+
+    finally:
+        del ped
+
+    return retorno
 # @router.post('/verifyTables')
 # async def verifyTables():
 #     ct = checkTables()

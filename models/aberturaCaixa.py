@@ -5,3 +5,4 @@ class aberturaCaixa(BaseModel):
     DATA_ABERTURA: str
     ID_USUARIO: int
     VALOR_ABERTURA: float
+    SENHA_CAIXA: str

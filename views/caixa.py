@@ -11,11 +11,13 @@ from models.aberturaCaixa import aberturaCaixa
 from models.consistenciasCaixa import consistenciasCaixa
 from models.dadosAbertura import dadosAbertura
 from models.dadosFechamento import dadosFechamento
+from models.dadosUsuario import dadosUsuario
 from models.fechamentoCaixa import fechamentoCaixa
 from models.filtroCAIXA import filtroCAIXA
 from models.filtroFormasPagtoCaixa import filtroFormasPagtoCaixa
 from models.filtroImpressaoCaixa import filtroImpressaoCaixa
 from models.formaPagtoCaixa import formaPagtoCaixa
+from models.itemCaixa import itemCaixa
 from models.listaDeCaixa import listaDeCaixa
 from models.listaDePagamentos import listaDePagamentos
 from models.listaDeUsuario import listaDeUsuario
@@ -34,7 +36,6 @@ from models.ResumoFormaPagtoOrigem import ResumoFormaPagtoOrigem
 from models.ResumoOrigem import ResumoOrigem
 from models.totaisPorFormaPagto import totaisPorFormaPagto
 from models.ultimosCaixas import ultimosCaixas
-
 
 class Caixa:
     def __init__(self, keep=None, idUser=None):
@@ -106,13 +107,23 @@ class Caixa:
         )
 
     async def gravaAberturaCaixa(self, dados: aberturaCaixa) -> int:
+        senhaOk = await self.verificaSenhaAberturaCaixa(
+            dadosUsuario(
+                ID_USUARIO=dados.ID_USUARIO,
+                SENHA_USUARIO=dados.SENHA_CAIXA
+            )
+        )
+
+        if not senhaOk:
+            return -1
+
         cmd = ctx.tb_abertura_caixa.insert().values(
             ID_ABERTURA=0,
             DATA_ABERTURA=datetime.strptime(dados.DATA_ABERTURA, "%d/%m/%Y %H:%M"),
             VALOR_ABERTURA=dados.VALOR_ABERTURA,
             VALOR_FECHAMENTO=0,
             ID_USUARIO=dados.ID_USUARIO,
-            DATA_FECHAMENTO=None,
+            DATA_FECHAMENTO=None
         )
 
         result = ctx.session.execute(cmd)
@@ -120,6 +131,15 @@ class Caixa:
         ctx.session.commit()
 
         return int(result.inserted_primary_key[0])
+
+    async def verificaSenhaAberturaCaixa(self, dados: dadosUsuario) -> bool:
+        u = ctx.mapUSUARIO
+
+        currentPassword = ctx.session.query(u).filter(
+            u.ID_USUARIO == dados.ID_USUARIO
+        ).first().SENHA_USUARIO
+
+        return currentPassword == dados.SENHA_USUARIO
 
     async def listUsuario(self):
         _filters = [ctx.mapUSUARIO.USUARIO_ATIVO == 1]
@@ -140,6 +160,15 @@ class Caixa:
 
         return self.qBase.toRoute(retorno, 200)
 
+    async def getUsuarioFromCaixa(self, dados: itemCaixa) -> int:
+        a = ctx.mapAberturaCaixa
+    
+        idUsuario = ctx.session.query(a).filter(
+            a.ID_ABERTURA == dados.ID_ABERTURA
+        ).first().ID_USUARIO
+
+        return idUsuario
+    
     async def getCaixa(self, filtro: filtroCAIXA) -> listaDeCaixa:
         rec = (
             ctx.session.query(ctx.mapAberturaCaixa)
