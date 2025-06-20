@@ -515,7 +515,7 @@ class Caixa:
     async def setImpressaoCaixa(self, filtro: filtroFormasPagtoCaixa):
         cmd = (
             ctx.tb_abertura_caixa.update()
-            .values(IMPRESSAO=1)
+            .values(IMPRESSAO=filtro.NUMERO_IMPRESSORA)
             .where(ctx.mapAberturaCaixa.ID_ABERTURA == filtro.ID_CAIXA)
         )
 

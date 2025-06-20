@@ -218,20 +218,14 @@ class produto:
 
         p = ctx.mapProduto
 
-        select1 = ctx.session.query(p).order_by(p.DESCRICAO_PRODUTO, p.PRODUTO_ATIVO)
-
-        filters = [p.PRECO_BALCAO > 0.00, p.PRODUTO_ATIVO == 1]
+        filters = []
 
         if len(filtro.DESCRICAO) > 0:
-
             lista = self.getSearchList(filtro.DESCRICAO)
 
             [filters.append(p.DESCRICAO_PRODUTO.like(f"%{item}%")) for item in lista]
 
-        select1 = select1.filter(*filters)
-
-        if len(filtro.DESCRICAO) == 0:
-            select1 = select1.limit(50)
+        query = ctx.session.query(p).filter(*filters).limit(50).all()
 
         lista = [
             listaProduto(
@@ -239,15 +233,16 @@ class produto:
                 DESCRICAO_PRODUTO=row.DESCRICAO_PRODUTO,
                 PRECO_BALCAO=0 if row.PRECO_BALCAO is None else float(row.PRECO_BALCAO),
                 ID_TRIBUTO=row.ID_TRIBUTO,
-                SALDO=await self.buscaSaldoProduto(
-                    filtroProduto(ID_PRODUTO=row.ID_PRODUTO)
-                ),
+                SALDO=0,
                 CODIGO_ZE="" if row.CODIGO_ZE is None else row.CODIGO_ZE,
+                PRODUTO_ATIVO=row.PRODUTO_ATIVO
             )
-            for row in select1.all()
+            for row in query
         ]
 
-        return lista
+        return [item for item in lista 
+                if item.PRODUTO_ATIVO == 1 and item.PRECO_BALCAO > 0.00
+                ]
 
     async def buscaSaldoProduto(self, filtro: filtroProduto) -> float:
         e = ctx.mapEstoque

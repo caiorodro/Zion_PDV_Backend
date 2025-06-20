@@ -7,3 +7,4 @@ class listaProduto(BaseModel):
     ID_TRIBUTO: int
     SALDO: float
     CODIGO_ZE: str
+    PRODUTO_ATIVO: int
