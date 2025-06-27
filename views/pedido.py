@@ -14,6 +14,7 @@ from models.dadosPedido import dadosPedido
 from models.editPedido import editItemPedido, editPedido, editPedidoPagamento
 from models.emissaoNFCe import emissaoNFCe
 from models.filaComanda import filaComanda
+from models.filtroCancelamento import filtroCancelamento
 from models.filtroIDPagamento import filtroIDPagamento
 from models.filtroImpressaoPedido import filtroImpressaoPedido
 from models.filtroListaPedido import filtroListaPedido
@@ -1175,10 +1176,19 @@ class pedido:
 
         ctx.session.execute(cmd)
 
-    async def cancelaPedido(self, record: listaDePedido):
+    async def cancelaPedido(self, record: filtroCancelamento):
         ip = ctx.mapItemPedido
         p = ctx.mapPedido
         pg = ctx.mapPedidoPagamento
+
+        u = ctx.mapUSUARIO
+
+        qu = ctx.session.query(u).filter(
+            u.SENHA_USUARIO == record.SENHA
+        ).all()
+
+        if len(qu) == 0:
+            raise Exception('Senha incorreta para cancelar o pedido')
 
         itens = (
             ctx.session.query(ip).filter(ip.NUMERO_PEDIDO == record.NUMERO_PEDIDO).all()

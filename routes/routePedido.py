@@ -16,6 +16,7 @@ from models.editCliente import editCliente
 from models.emissaoNFCe import emissaoNFCe
 from models.fechamentoCaixa import fechamentoCaixa
 from models.filtroCAIXA import filtroCAIXA
+from models.filtroCancelamento import filtroCancelamento
 from models.filtroCliente import filtroCliente
 from models.filtroCodigoProduto import filtroCodigoProduto
 from models.filtroDescricaoProduto import filtroDescricaoProduto
@@ -542,7 +543,7 @@ async def buscaEndereco(filtro: filtroEndereco):
 
 
 @router.post("/cancelaPedido")
-async def cancelaPedido(record: listaDePedido):
+async def cancelaPedido(record: filtroCancelamento):
     _cliente = pedido()
     result = None
 
