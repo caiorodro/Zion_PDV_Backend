@@ -329,7 +329,11 @@ class Caixa:
         p = ctx.mapPedido
         pg = ctx.mapPedidoPagamento
 
-        _filters = [p.ID_CAIXA == filtro.ID_CAIXA, pg.FORMA_PAGTO == filtro.FORMA_PAGTO]
+        _filters = [
+            p.ID_CAIXA == filtro.ID_CAIXA, 
+            pg.FORMA_PAGTO == filtro.FORMA_PAGTO,
+            p.STATUS_PEDIDO == 3
+        ]
 
         query = (
             ctx.session.query(

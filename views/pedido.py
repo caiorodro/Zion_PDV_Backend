@@ -1442,6 +1442,8 @@ class pedido:
     async def deleteItemPagamento(self, filtro: filtroIDPagamento):
         pg = ctx.mapPedidoPagamento
 
+        numeroPedido = ctx.session.query(pg).filter(pg.ID_PAGAMENTO == filtro.ID_PAGAMENTO).first().NUMERO_PEDIDO
+
         cmd = ctx.tb_pedido_pagamento.delete().where(
             pg.ID_PAGAMENTO == filtro.ID_PAGAMENTO
         )
@@ -1449,8 +1451,9 @@ class pedido:
         ctx.session.execute(cmd)
         ctx.session.commit()
 
+        await self.recalculaTotaisPedido(numeroPedido)
+
     async def addItemPagamento(self, dados: pagamentoPedido):
-        pg = ctx.mapPedidoPagamento
         p = ctx.mapPedido
 
         pedido = (
@@ -1475,6 +1478,8 @@ class pedido:
 
         ctx.session.execute(cmd)
         ctx.session.commit()
+
+        await self.recalculaTotaisPedido(dados.NUMERO_PEDIDO)
 
     async def concluiPagamento(self, dados: conclusaoPagamento):
         if dados.IMPRESSAO == True:
