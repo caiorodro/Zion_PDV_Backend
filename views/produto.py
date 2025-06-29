@@ -130,6 +130,9 @@ class produto:
             precoAtacado(PRECO=precoBalcao).model_dump_json(), 200
         )
 
+    async def getCodigoBalanca(self, filtro: filtroCodigoProduto):
+        pass
+    
     async def buscaProdutoPorCodigo(self, filtro: filtroCodigoProduto) -> List[itemPedidoCaixa]:
         p = ctx.mapProduto
         lista = []
@@ -164,6 +167,7 @@ class produto:
                     ),
                     TOTAL=rec.PRECO_BALCAO,
                     ID_TRIBUTO=rec.ID_TRIBUTO,
+                    QTDE_FRACIONADA=await self.qBase.isFamiliaBalanca(row.ID_FAMILIA) if isinstance(row.ID_FAMILIA, int) else False
                 )
             ]
 
@@ -195,6 +199,7 @@ class produto:
                         ),
                         TOTAL=rec.PRECO_BALCAO,
                         ID_TRIBUTO=rec.ID_TRIBUTO,
+                        QTDE_FRACIONADA=await self.qBase.isFamiliaBalanca(row.ID_FAMILIA) if isinstance(row.ID_FAMILIA, int) else False
                     )
                 ]
 
@@ -235,7 +240,8 @@ class produto:
                 ID_TRIBUTO=row.ID_TRIBUTO,
                 SALDO=0,
                 CODIGO_ZE="" if row.CODIGO_ZE is None else row.CODIGO_ZE,
-                PRODUTO_ATIVO=row.PRODUTO_ATIVO
+                PRODUTO_ATIVO=row.PRODUTO_ATIVO,
+                QTDE_FRACIONADA=await self.qBase.isFamiliaBalanca(row.ID_FAMILIA) if isinstance(row.ID_FAMILIA, int) else False
             )
             for row in query
         ]

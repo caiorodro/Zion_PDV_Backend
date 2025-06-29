@@ -5,6 +5,7 @@ import math
 from decimal import Decimal
 
 from base.authentication import authentication
+from models.prefs import prefs
 from utils import currency_formatter
 
 class qBase:
@@ -240,5 +241,21 @@ class qBase:
 
     def maxString(self, str1: str, max: int) -> str:
         retorno = str1[0:max] if len(str1) > max else str1
+
+        return retorno
+    
+    async def isFamiliaBalanca(self, ID_FAMILIA: int) -> bool:
+        content = None
+        
+        try:
+            with open('cfg/prefs.json', 'r', encoding='utf-8') as fi:
+                content = prefs(**json.loads(fi.read()))
+        except:
+            pass
+
+        retorno = False
+
+        if isinstance(content, prefs):
+            retorno = ID_FAMILIA in content.FAMILIAS_BALANCA
 
         return retorno

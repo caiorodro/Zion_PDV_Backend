@@ -10,7 +10,7 @@ class mapUSUARIO:
 
 class mapProduto:
     def __init__(self, ID_PRODUTO, CODIGO_PRODUTO, CODIGO_PRODUTO_PDV, DESCRICAO_PRODUTO, PRECO_BALCAO, PRODUTO_ATIVO, ID_TRIBUTO,
-                 CODIGO_ZE):
+                 CODIGO_ZE, ID_FAMILIA):
         self.ID_PRODUTO = ID_PRODUTO
         self.CODIGO_PRODUTO = CODIGO_PRODUTO
         self.CODIGO_PRODUTO_PDV = CODIGO_PRODUTO_PDV
@@ -19,6 +19,7 @@ class mapProduto:
         self.PRODUTO_ATIVO = PRODUTO_ATIVO
         self.ID_TRIBUTO = ID_TRIBUTO
         self.CODIGO_ZE = CODIGO_ZE
+        self.ID_FAMILIA = ID_FAMILIA
 
 class mapGradePreco:
     def __init__(self, ID_PRODUTO, QTDE_INICIAL, QTDE_FINAL, PRECO_VENDA) -> None:

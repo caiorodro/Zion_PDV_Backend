@@ -8,3 +8,4 @@ class listaProduto(BaseModel):
     SALDO: float
     CODIGO_ZE: str
     PRODUTO_ATIVO: int
+    QTDE_FRACIONADA: bool

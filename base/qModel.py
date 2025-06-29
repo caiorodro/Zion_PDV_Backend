@@ -90,6 +90,7 @@ tb_produto = Table(
     Column("PRODUTO_ATIVO", Integer, nullable=True),
     Column("ID_TRIBUTO", Integer, nullable=False),
     Column("CODIGO_ZE", String(20), nullable=True),
+    Column('ID_FAMILIA', Integer, nullable=True)
 )
 
 tb_grade_produto = Table(

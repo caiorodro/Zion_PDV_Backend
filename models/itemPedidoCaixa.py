@@ -9,3 +9,4 @@ class itemPedidoCaixa(BaseModel):
     PRECO: float
     TOTAL: float
     ID_TRIBUTO: int
+    QTDE_FRACIONADA: bool

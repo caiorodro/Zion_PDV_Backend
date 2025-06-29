@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+import json
 from typing import List
 
 from dateutil.relativedelta import relativedelta
@@ -40,6 +41,7 @@ from models.pedido import pedido as ped
 from models.pagamentoPedido import pagamentoPedido
 from models.pedido import pedido
 from models.pedidoPagamento import pedidoPagamento
+from models.prefs import prefs
 from models.produtoQtde import produtoQtde
 from models.TOTAL_PEDIDO import TOTAL_PEDIDO
 
@@ -756,7 +758,7 @@ class pedido:
     async def listaAtendimento(self, NUMERO_PEDIDO):
         filters = [
             ctx.mapItemPedido.NUMERO_PEDIDO == NUMERO_PEDIDO,
-            ctx.mapItemPedido.ID_PRODUTO == ctx.mapProduto.ID_PRODUTO,
+            ctx.mapItemPedido.ID_PRODUTO == ctx.mapProduto.ID_PRODUTO
         ]
 
         select1 = (
@@ -768,6 +770,8 @@ class pedido:
                 ctx.mapItemPedido.QTDE,
                 ctx.mapItemPedido.PRECO_UNITARIO,
                 ctx.mapItemPedido.VALOR_TOTAL,
+                ctx.mapProduto.ID_TRIBUTO,
+                ctx.mapProduto.ID_FAMILIA
             )
             .filter(*filters)
             .all()
@@ -782,6 +786,8 @@ class pedido:
                 QTDE=row.QTDE,
                 PRECO=row.PRECO_UNITARIO,
                 TOTAL=row.VALOR_TOTAL,
+                ID_TRIBUTO=row.ID_TRIBUTO,
+                QTDE_FRACIONADA=await self.qBase.isFamiliaBalanca(row.ID_FAMILIA) if isinstance(row.ID_FAMILIA, int) else False
             ).model_dump_json()
             for row in select1
         ]
