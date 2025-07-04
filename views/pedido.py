@@ -1,5 +1,5 @@
+import asyncio
 from datetime import datetime, timedelta
-import json
 from typing import List
 
 from dateutil.relativedelta import relativedelta
@@ -547,7 +547,10 @@ class pedido:
         ctx.session.execute(delFinanceiro)
 
         items = [
-            produtoQtde(await self.getDescricaoProduto(item.ID_PRODUTO), item.QTDE)
+            produtoQtde(
+                DESCRICAO_PRODUTO=await self.getDescricaoProduto(item.ID_PRODUTO), 
+                QTDE=item.QTDE
+                )
             for item in itemsPedido
         ]
 
@@ -563,7 +566,7 @@ class pedido:
         )
 
         if len(descricao) > 250:
-            descricao = descricao[0, 250]
+            descricao = descricao[0: 250]
 
         cmd = ctx.tb_financeiro.insert().values(
             DATA_LANCAMENTO=datetime.today(),
@@ -640,12 +643,8 @@ class pedido:
 
         items = [
             produtoQtde(
-                **{
-                    "DESCRICAO_PRODUTO": await self.getDescricaoProduto(
-                        item.ID_PRODUTO
-                    ),
-                    "QTDE": item.QTDE,
-                }
+                DESCRICAO_PRODUTO=await self.getDescricaoProduto(item.ID_PRODUTO),
+                QTDE=item.QTDE
             )
             for item in itemsPedido
         ]
@@ -662,7 +661,7 @@ class pedido:
         )
 
         if len(descricao) > 250:
-            descricao = descricao[0, 250]
+            descricao = descricao[0: 250]
 
         percentualAbatimento = 0.00
 
@@ -1993,7 +1992,7 @@ class pedido:
             descricaoProduto = self.qBase.cleanSpecialChars(descricaoProduto)
 
             if len(descricaoProduto) > 120:
-                descricaoProduto = descricaoProduto[0, 120]
+                descricaoProduto = descricaoProduto[0: 120]
 
             _cidade = (
                 dadosEmpresa.CIDADE

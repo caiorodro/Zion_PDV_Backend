@@ -1,4 +1,3 @@
-import json
 from decimal import Decimal
 from typing import List
 
@@ -15,13 +14,13 @@ from models.itemPedidoCaixa import itemPedidoCaixa
 from models.listaDeProduto import listaDeProduto
 from models.listaProduto import listaProduto
 from models.precoAtacado import precoAtacado
-
+from models.produtoBalanca import produtoBalanca
 
 class produto:
     def __init__(self, keep=None, idUser=None):
         self.qBase = qBase(keep)
-        self.__listOfUsers = []
-        self.__idUser = idUser
+
+        self.prefs = self.qBase.getPrefs()
 
     async def list(self, NOME) -> List[listaDeProduto]:
         select1 = ctx.session.query(ctx.mapProduto).order_by(
@@ -130,10 +129,56 @@ class produto:
             precoAtacado(PRECO=precoBalcao).model_dump_json(), 200
         )
 
-    async def getCodigoBalanca(self, filtro: filtroCodigoProduto):
-        pass
-    
+    async def getItemBalanca(self, filtro: filtroCodigoProduto) -> produtoBalanca | None:
+
+        if len(self.qBase.onlyNumbers(filtro.CODIGO)) != 13:
+            return None
+
+        codigoBalanca = str(int(filtro.CODIGO[1 : 7]))
+
+        p = ctx.mapProduto
+
+        items = ctx.session.query(p).filter(
+            p.CODIGO_PRODUTO == codigoBalanca
+        ).all()
+
+        itemsBalanca = [
+            item
+            for item in items
+            if item.ID_FAMILIA in self.prefs.FAMILIAS_BALANCA
+        ]
+
+        record =  produtoBalanca(
+            ITEM_PRODUTO=itemsBalanca[0],
+            QTDE=float(filtro.CODIGO[7:]) / 1000
+        ) if any(items) else None
+
+        return record
+
     async def buscaProdutoPorCodigo(self, filtro: filtroCodigoProduto) -> List[itemPedidoCaixa]:
+
+        itemCodigoBalanca = await self.getItemBalanca(filtro)
+
+        if isinstance(itemCodigoBalanca, produtoBalanca):
+            rec = itemCodigoBalanca.ITEM_PRODUTO
+
+            lista = [
+                itemPedidoCaixa(
+                    NUMERO_PEDIDO=0,
+                    NUMERO_ITEM=0,
+                    ID_PRODUTO=rec.ID_PRODUTO,
+                    DESCRICAO_PRODUTO=rec.DESCRICAO_PRODUTO,
+                    QTDE=itemCodigoBalanca.QTDE,
+                    PRECO=float(rec.PRECO_BALCAO),
+                    TOTAL=round(float(rec.PRECO_BALCAO) * itemCodigoBalanca.QTDE, 2),
+                    ID_TRIBUTO=rec.ID_TRIBUTO,
+                    QTDE_FRACIONADA=await self.qBase.isFamiliaBalanca(rec.ID_FAMILIA) if isinstance(rec.ID_FAMILIA, int) else False,
+                    ID_FAMILIA = rec.ID_FAMILIA
+                )
+            ]
+
+            return lista
+
         p = ctx.mapProduto
         lista = []
 
@@ -146,7 +191,7 @@ class produto:
         filtro.CODIGO = filtro.CODIGO.strip()
 
         row = ctx.session.query(
-            p.ID_PRODUTO, p.DESCRICAO_PRODUTO, p.PRECO_BALCAO, p.ID_TRIBUTO
+            p.ID_PRODUTO, p.DESCRICAO_PRODUTO, p.PRECO_BALCAO, p.ID_TRIBUTO, p.ID_FAMILIA
         ).filter(*filters)
 
         if row.first():
@@ -167,7 +212,7 @@ class produto:
                     ),
                     TOTAL=rec.PRECO_BALCAO,
                     ID_TRIBUTO=rec.ID_TRIBUTO,
-                    QTDE_FRACIONADA=await self.qBase.isFamiliaBalanca(row.ID_FAMILIA) if isinstance(row.ID_FAMILIA, int) else False
+                    QTDE_FRACIONADA=await self.qBase.isFamiliaBalanca(rec.ID_FAMILIA) if isinstance(rec.ID_FAMILIA, int) else False
                 )
             ]
 
@@ -179,7 +224,7 @@ class produto:
             ]
 
             row = ctx.session.query(
-                p.ID_PRODUTO, p.DESCRICAO_PRODUTO, p.PRECO_BALCAO, p.ID_TRIBUTO
+                p.ID_PRODUTO, p.DESCRICAO_PRODUTO, p.PRECO_BALCAO, p.ID_TRIBUTO, p.ID_FAMILIA
             ).filter(*filters)
 
             if row.first():
@@ -199,7 +244,7 @@ class produto:
                         ),
                         TOTAL=rec.PRECO_BALCAO,
                         ID_TRIBUTO=rec.ID_TRIBUTO,
-                        QTDE_FRACIONADA=await self.qBase.isFamiliaBalanca(row.ID_FAMILIA) if isinstance(row.ID_FAMILIA, int) else False
+                        QTDE_FRACIONADA=await self.qBase.isFamiliaBalanca(rec.ID_FAMILIA) if isinstance(rec.ID_FAMILIA, int) else False
                     )
                 ]
 
@@ -287,15 +332,17 @@ class produto:
 
         p = ctx.mapProduto
 
-        filters = [p.PRECO_BALCAO > 0.00, p.PRODUTO_ATIVO == 1]
+        filters = [
+            p.PRECO_BALCAO > 0.00, 
+            p.PRODUTO_ATIVO == 1
+        ]
 
-        select1 = (
-            ctx.session.query(p).order_by(p.DESCRICAO_PRODUTO).filter(*filters).all()
-        )
+        select1 = ctx.session.query(p).order_by(p.DESCRICAO_PRODUTO).filter(*filters).all()
 
         lista = [
             comboProduto(
-                ID_PRODUTO=row.ID_PRODUTO, DESCRICAO_PRODUTO=row.DESCRICAO_PRODUTO
+                ID_PRODUTO=row.ID_PRODUTO,
+                DESCRICAO_PRODUTO = f'{row.DESCRICAO_PRODUTO}, [{row.CODIGO_PRODUTO}]'
             )
             for row in select1
         ]
