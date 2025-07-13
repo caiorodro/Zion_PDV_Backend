@@ -20,6 +20,7 @@ class itemPedido:
     ALIQ_PIS: float
     ALIQ_COFINS: float
     CEST: str
+    DESCRICAO_PRODUTO: str
     OBS_ITEM: str
     ID_ITEM_LOCAL: int
     ID_TERMINAL: int

@@ -32,6 +32,7 @@ class NFCe:
             raise Exception(f'Não há emitente cadastrado com o CNPJ {id.CNPJ}')
         
         item = rec[0]
+
         endereco = item.ENDERECO.split(',')[0]
         numeroEndereco = self.qBase.onlyNumbers(
             item.ENDERECO.split(',')[1]
@@ -74,6 +75,37 @@ class NFCe:
 
         return retorno
     
+    async def prepareItem(self, item: ctx.mapItemPedido, tributos: ctx.mapTributo) -> itemPedido:
+
+        recTributo = await self.getRecordTributo(item.ID_TRIBUTO, tributos)
+
+        retorno = itemPedido(
+                NUMERO_ITEM=item.NUMERO_ITEM,
+                NUMERO_PEDIDO=item.NUMERO_PEDIDO,
+                ID_PRODUTO=item.ID_PRODUTO,
+                CODIGO_PRODUTO=item.CODIGO_PRODUTO,
+                CODIGO_PRODUTO_PDV='',
+                ID_TRIBUTO=item.ID_TRIBUTO,
+                NCM=recTributo.NCM,
+                CFOP=recTributo.CFOP,
+                CST_CSOSN=recTributo.CST,
+                ALIQ_ICMS=recTributo.ALIQ_ICMS,
+                CST_PIS=recTributo.CST_PIS,
+                CST_COFINS=recTributo.CST_COFINS,
+                ALIQ_PIS=recTributo.ALIQ_PIS,
+                ALIQ_COFINS=recTributo.ALIQ_COFINS,
+                CEST=recTributo.CEST,
+                DESCRICAO_PRODUTO=await self.getItemPedido(item),
+                QTDE=int(item.QTDE),
+                PRECO_UNITARIO=float(item.PRECO_UNITARIO),
+                VALOR_TOTAL=float(item.VALOR_TOTAL),
+                OBS_ITEM=item.OBS_ITEM,
+                ID_ITEM_LOCAL = 0,
+                ID_TERMINAL = 0
+            )
+        
+        return retorno
+        
     async def getPedidoParaEmissao(self, filtro: filtroNumeroPedido) -> dadosPedido:
         p = ctx.mapPedido
         ip = ctx.mapItemPedido
@@ -116,30 +148,7 @@ class NFCe:
             t.ID_TRIBUTO.in_(idsTributo)
         ).all()
 
-        itemsPedido = [
-            itemPedido(
-                NUMERO_ITEM=item.NUMERO_ITEM,
-                NUMERO_PEDIDO=item.NUMERO_PEDIDO,
-                ID_PRODUTO=item.ID_PRODUTO,
-                CODIGO_PRODUTO=item.CODIGO_PRODUTO,
-                CODIGO_PRODUTO_PDV='',
-                ID_TRIBUTO=item.ID_TRIBUTO,
-                NCM=await self.getRecordTributo(item.ID_TRIBUTO, tributos).NCM,
-                CFOP=await self.getRecordTributo(item.ID_TRIBUTO, tributos).CFOP,
-                CST_CSOSN=await self.getRecordTributo(item.ID_TRIBUTO, tributos).CST,
-                ALIQ_ICMS=await self.getRecordTributo(item.ID_TRIBUTO, tributos).ALIQ_ICMS,
-                CST_PIS=await self.getRecordTributo(item.ID_TRIBUTO, tributos).CST_PIS,
-                CST_COFINS=await self.getRecordTributo(item.ID_TRIBUTO, tributos).CST_COFINS,
-                ALIQ_PIS=await self.getRecordTributo(item.ID_TRIBUTO, tributos).ALIQ_PIS,
-                ALIQ_COFINS=await self.getRecordTributo(item.ID_TRIBUTO, tributos).ALIQ_COFINS,
-                CEST=await self.getRecordTributo(item.ID_TRIBUTO, tributos).CEST,
-                DESCRICAO_PRODUTO=await self.getItemPedido(item),
-                QTDE=int(item.QTDE),
-                PRECO=float(item.PRECO_UNITARIO),
-                TOTAL=float(item.VALOR_TOTAL)
-            )
-            for item in items
-        ]
+        itemsPedido = [await self.prepareItem(item, tributos) for item in items]
 
         pag = ctx.session.query(pg).filter(
             pg.NUMERO_PEDIDO == filtro.NUMERO_PEDIDO
@@ -150,7 +159,6 @@ class NFCe:
                 ID_PAGAMENTO=item.ID_PAGAMENTO,
                 NUMERO_PEDIDO=item.NUMERO_PEDIDO,
                 FORMA_PAGTO=item.FORMA_PAGTO,
-                ID_CAIXA=item.ID_CAIXA,
                 VALOR_PAGO=item.VALOR_PAGO,
                 CODIGO_NSU="" if item.CODIGO_NSU is None else item.CODIGO_NSU,
             )
@@ -176,8 +184,6 @@ class NFCe:
             VALOR_DESCONTO=float(rec.DESCONTO) if rec.DESCONTO is not None else 0.00,
             INFO_ADICIONAL=rec.INFO_ADICIONAL,
             ID_CAIXA=rec.ID_CAIXA,
-            ITEMS=itemsPedido,
-            PAGAMENTOS=_pagamentos,
             ID_ENDERECO=rec.ID_ENDERECO
         )
 
@@ -195,7 +201,7 @@ class NFCe:
         
         retorno = await self.getDescricaoProduto(item.ID_PRODUTO) + f' {obsItem}'
 
-        return retorno
+        return retorno.strip()
     
     async def getDescricaoProduto(self, ID_PRODUTO) -> str:
         rec = (
@@ -207,3 +213,21 @@ class NFCe:
         descricaoProduto = "" if rec is None else rec.DESCRICAO_PRODUTO
 
         return descricaoProduto
+
+    async def getNomeTransporte(self, ID_TRANSPORTE: int) -> str:
+        t = ctx.mapTransporte
+
+        query = ctx.session.query(t).filter(t.ID_TRANSPORTE == ID_TRANSPORTE).all()
+
+        return query[0].NOME_TRANSPORTE if len(query) > 0 else ""
+
+    async def getNomeCliente(self, ID_CLIENTE: int) -> str:
+        t = ctx.mapCliente
+
+        query = ctx.session.query(t).filter(t.ID_CLIENTE == ID_CLIENTE).all()
+
+        return query[0].NOME_CLIENTE if len(query) > 0 else ""
+
+
+    def __del__(self):
+        ctx.session.close_all()

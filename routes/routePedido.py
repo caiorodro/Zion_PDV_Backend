@@ -51,6 +51,7 @@ from models.TOTAL_PEDIDO import TOTAL_PEDIDO
 from views.caixa import Caixa
 from views.cliente import Cliente
 from views.CupomFiscal import cupomFiscal
+from nfe.views.NFCe import NFCe
 from views.pedido import pedido
 from views.produto import produto
 from views.reforco import Reforco
@@ -1081,3 +1082,19 @@ async def checaSenhaReset(dados: senhaReset):
 #     ct = checkTables()
 #     await ct.verifyNewTables()
 #     del ct
+
+@router.get('/getPedidoParaEmissao')
+async def getPedidoParaEmissao(filtro: filtroNumeroPedido):
+    ped = NFCe()
+
+    retorno = None
+
+    try:
+        retorno = await ped.getPedidoParaEmissao(filtro)
+    except Exception as ex:
+        raise ex
+
+    finally:
+        del ped
+
+    return retorno

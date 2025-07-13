@@ -4,7 +4,6 @@ from dataclasses import dataclass
 class pagamentoPedido:
     NUMERO_PEDIDO: int
     ID_PAGAMENTO: int
-    ID_FORMA: int
-    DESCRICAO_FORMA: str
+    FORMA_PAGTO: int
     VALOR_PAGO: float
-    CODIGO_AUTORIZACAO: str
+    CODIGO_NSU: str
