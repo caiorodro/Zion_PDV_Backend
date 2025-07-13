@@ -1,4 +1,3 @@
-import asyncio
 from datetime import datetime, timedelta
 from typing import List
 
@@ -25,6 +24,7 @@ from models.FORMAS_PAGTO_IMPRESSAO import FORMAS_PAGTO_IMPRESSAO
 from models.impressaoAvulsa import impressaoAvulsa
 from models.impressaoPedidoBalcao import impressaoPedidoBalcao
 from models.itemPedido import itemPedido
+from models.itemPedidoFinanceiro import itemPedidoFinanceiro
 from models.itemPedidoCaixa import itemPedidoCaixa
 from models.itemsNFe import itemsNFe
 from models.itemTributo import itemTributo
@@ -40,8 +40,9 @@ from models.Order import Order
 from models.pedido import pedido as ped
 from models.pagamentoPedido import pagamentoPedido
 from models.pedido import pedido
+from models.pedidoFinanceiro import pedidoFinanceiro
 from models.pedidoPagamento import pedidoPagamento
-from models.prefs import prefs
+from models.pedidoPagamentoFinanceiro import pedidoPagamentoFinanceiro
 from models.produtoQtde import produtoQtde
 from models.TOTAL_PEDIDO import TOTAL_PEDIDO
 
@@ -424,7 +425,7 @@ class pedido:
         return True
 
     async def gravaFinanceiro(
-        self, pedido: pedido, itemsPedido: List[itemPedido], pagamento: pedidoPagamento
+        self, _pedido: pedido, itemsPedido: List[itemPedido], pagamento: pedidoPagamento
     ) -> bool:
         table = ctx.mapFormaPagto
 
@@ -436,11 +437,30 @@ class pedido:
 
         if len(formaPagto) > 0:
             if formaPagto[0].PAGTO_FUTURO == 1:
-                await self.inserePagtoFuturo(pedido, itemsPedido, pagamento)
+                
+                itemsFinanceiro = [
+                    itemPedidoFinanceiro(
+                        PRODUTO= await self.getDescricaoProduto(item.ID_PRODUTO),
+                        QTDE=item.QTDE
+                    )
+                    for item in itemsPedido
+                ]
+
+                await self.inserePagtoFuturo(
+                    pedidoFinanceiro(
+                        NUMERO_PEDIDO=_pedido.NUMERO_PEDIDO,
+                        NOME_CLIENTE=_pedido.NOME_CLIENTE
+                    ), 
+                    itemsFinanceiro, 
+                    pedidoPagamentoFinanceiro(
+                        VALOR_PAGO=pagamento.VALOR_PAGO,
+                        NUMERO_PEDIDO=pagamento.NUMERO_PEDIDO
+                    )
+                )
 
                 return True
 
-            await self.inserePagtoCartao(pedido, itemsPedido, pagamento)
+            await self.inserePagtoCartao(_pedido, itemsPedido, pagamento)
 
             ctx.session.commit()
 
@@ -511,7 +531,8 @@ class pedido:
         return retorno
 
     async def inserePagtoFuturo(
-        self, pedido: pedido, itemsPedido: List[itemPedido], pagamento: pedidoPagamento
+        self, pedido: pedidoFinanceiro, itemsPedido: List[itemPedidoFinanceiro], pagamento: pedidoPagamentoFinanceiro,
+
     ) -> bool:
         planoConta = (
             ctx.session.query(ctx.mapPlanoConta)
@@ -541,14 +562,14 @@ class pedido:
         _vencimento = datetime(ano, mes, 7, hoje.hour, hoje.minute, 0)
 
         delFinanceiro = ctx.tb_financeiro.delete().where(
-            ctx.mapFinanceiro.NUMERO_COMANDA == pagamento.ID_PAGAMENTO
+            ctx.mapFinanceiro.NUMERO_COMANDA == pagamento.NUMERO_PEDIDO
         )
 
         ctx.session.execute(delFinanceiro)
 
         items = [
             produtoQtde(
-                DESCRICAO_PRODUTO=await self.getDescricaoProduto(item.ID_PRODUTO), 
+                DESCRICAO_PRODUTO=item.PRODUTO, 
                 QTDE=item.QTDE
                 )
             for item in itemsPedido
@@ -581,7 +602,7 @@ class pedido:
             CREDITO_DEBITO=0,
             NUMERO_SEQ_NF_ENTRADA=0,
             ID_EMPRESA=1,
-            NUMERO_COMANDA=pagamento.ID_PAGAMENTO,
+            NUMERO_COMANDA=pagamento.NUMERO_PEDIDO
         )
 
         ctx.session.execute(cmd)
@@ -636,7 +657,7 @@ class pedido:
         _vencimento = datetime(ano, mes, 7, hoje.hour, hoje.minute, 0)
 
         delFinanceiro = ctx.tb_financeiro.delete().where(
-            ctx.mapFinanceiro.NUMERO_COMANDA == pagamento.ID_PAGAMENTO
+            ctx.mapFinanceiro.NUMERO_COMANDA == pagamento.NUMERO_PEDIDO
         )
 
         ctx.session.execute(delFinanceiro)
@@ -687,7 +708,7 @@ class pedido:
             CREDITO_DEBITO=0,
             NUMERO_SEQ_NF_ENTRADA=0,
             ID_EMPRESA=1,
-            NUMERO_COMANDA=pagamento.ID_PAGAMENTO,
+            NUMERO_COMANDA=pagamento.NUMERO_PEDIDO,
         )
 
         ctx.session.execute(cmd)
@@ -1174,10 +1195,12 @@ class pedido:
 
         await self.recalculaTotaisPedido(numeroPedido)
 
-    async def deletaPagamento(self, ID_PAGAMENTO: int):
+    async def deletaPagamentoFinanceiro(self, NUMERO_PEDIDO: int):
         f = ctx.mapFinanceiro
 
-        cmd = ctx.tb_financeiro.delete().where(f.NUMERO_COMANDA == ID_PAGAMENTO)
+        cmd = ctx.tb_financeiro.delete().where(
+            f.NUMERO_COMANDA == NUMERO_PEDIDO
+            )
 
         ctx.session.execute(cmd)
 
@@ -1240,9 +1263,9 @@ class pedido:
             ctx.session.query(pg).filter(pg.NUMERO_PEDIDO == record.NUMERO_PEDIDO).all()
         )
 
-        ids = [item.ID_PAGAMENTO for item in pagamentos]
+        ids = [item.NUMERO_PEDIDO for item in pagamentos]
 
-        [await self.deletaPagamento(id) for id in ids]
+        [await self.deletaPagamentoFinanceiro(id) for id in ids]
 
         ctx.session.commit()
 
@@ -1256,11 +1279,11 @@ class pedido:
             2,
         )
 
-        qPg = (
-            ctx.session.query(pg.NUMERO_PEDIDO, pg.VALOR_PAGO)
-            .filter(pg.NUMERO_PEDIDO == record.NUMERO_PEDIDO)
-            .all()
-        )
+        qPg = ctx.session.query(
+            pg
+        ).filter(
+            pg.NUMERO_PEDIDO == record.NUMERO_PEDIDO
+        ).all()
 
         somaPagamentos = sum(
             [float(item.VALOR_PAGO) for item in qPg if item.VALOR_PAGO is not None]
@@ -1271,25 +1294,160 @@ class pedido:
         if somaPagamentos > totalPedido:
             troco = round(somaPagamentos - totalPedido, 2)
 
-        cmd = (
-            ctx.tb_pedido.update()
-            .values(
-                ID_CLIENTE=record.ID_CLIENTE,
-                ID_ENDERECO=record.ID_ENDERECO,
-                ID_TRANSPORTE=record.ID_TRANSPORTE,
-                TOTAL_PRODUTOS=record.TOTAL_PRODUTOS,
-                TAXA_ENTREGA=record.TAXA_ENTREGA,
-                ADICIONAL=record.ADICIONAL,
-                DESCONTO=record.DESCONTO,
-                INFO_ADICIONAL=record.INFO_ADICIONAL,
-                TOTAL_PEDIDO=totalPedido,
-                TROCO=troco,
-            )
-            .where(p.NUMERO_PEDIDO == record.NUMERO_PEDIDO)
+        cmd = ctx.tb_pedido.update().values(
+            ID_CLIENTE=record.ID_CLIENTE,
+            ID_ENDERECO=record.ID_ENDERECO,
+            ID_TRANSPORTE=record.ID_TRANSPORTE,
+            TOTAL_PRODUTOS=record.TOTAL_PRODUTOS,
+            TAXA_ENTREGA=record.TAXA_ENTREGA,
+            ADICIONAL=record.ADICIONAL,
+            DESCONTO=record.DESCONTO,
+            INFO_ADICIONAL=record.INFO_ADICIONAL,
+            TOTAL_PEDIDO=totalPedido,
+            TROCO=troco,
+        ).where(
+            p.NUMERO_PEDIDO == record.NUMERO_PEDIDO
         )
-
+        
         ctx.session.execute(cmd)
         ctx.session.commit()
+
+        await self.refazFinanceiro(
+            qPg,
+            record
+            )
+
+        ctx.session.commit()
+
+    async def refazFinanceiro(self, pagamentos: List[ctx.mapPedidoPagamento], record: dadosPedido):
+        f = ctx.mapFormaPagto
+        fin = ctx.mapFinanceiro
+        ip = ctx.mapItemPedido
+        c = ctx.mapCliente
+
+        formasPagto = [item.FORMA_PAGTO for item in pagamentos]
+
+        filters = [
+            f.DESCRICAO_FORMA.in_(formasPagto),
+            f.PAGTO_FUTURO == 1
+        ]
+
+        recordFormaPagto = ctx.session.query(f).filter(*
+            filters
+        ).all()
+
+        if not any(recordFormaPagto):
+            return
+
+        recordFinanceiro = ctx.session.query(fin).filter(
+            fin.NUMERO_COMANDA == record.NUMERO_PEDIDO
+        ).first()
+
+        if recordFinanceiro is None:
+            return
+            
+        itemsPedido = ctx.session.query(ip).filter(
+            ip.NUMERO_PEDIDO == record.NUMERO_PEDIDO
+        ).all()
+            
+        items = [
+            produtoQtde(
+                DESCRICAO_PRODUTO=await self.getDescricaoProduto(item.ID_PRODUTO), 
+                QTDE=item.QTDE
+                )
+            for item in itemsPedido
+        ]
+
+        strItems = ", ".join(
+            [f"[{item.DESCRICAO_PRODUTO}, Qtde: {str(item.QTDE)}]" for item in items]
+        )
+
+        nomeCliente = ctx.session.query(c).filter(
+            c.ID_CLIENTE == record.ID_CLIENTE
+        ).first().NOME_CLIENTE
+
+        descricao = "".join(
+            [
+                f"Recebimento futuro {nomeCliente} - Nr. Pedido {record.NUMERO_PEDIDO}",
+                f", ITENS: {strItems}",
+            ]
+        )
+
+        if len(descricao) > 250:
+            descricao = descricao[0: 250]
+
+        cmdFinanceiro = ctx.tb_financeiro.update().values(
+            HISTORICO = descricao
+        ).where(
+            fin.NUMERO_COMANDA == record.NUMERO_PEDIDO
+        )
+
+        ctx.session.execute(cmdFinanceiro)
+        ctx.session.commit()
+
+    async def isPagtoFuturo(self, DESCRICAO: str) -> List:
+        f = ctx.mapFormaPagto
+
+        filters = [
+            f.DESCRICAO_FORMA == DESCRICAO,
+            f.PAGTO_FUTURO == 1
+        ]
+
+        query = ctx.session.query(f.DESCRICAO_FORMA).filter(
+            *filters
+        ).all()
+
+        return query
+
+    async def refazPagamentoFuturo(self, NUMERO_PEDIDO: int):
+        pg = ctx.mapPedidoPagamento
+        ip = ctx.mapPedidoPagamento
+        p = ctx.mapPedido
+        c = ctx.mapCliente
+
+        pagamentos = ctx.session.query(pg).filter(
+            pg.NUMERO_PEDIDO == NUMERO_PEDIDO
+        ).all()
+
+        listaP = [await self.isPagtoFuturo(item.FORMA_PAGTO) for item in pagamentos]
+
+        if not any(listaP):
+            await self.deletaPagamentoFinanceiro(NUMERO_PEDIDO)
+            return
+        
+        recordPagamento = [
+            pedidoPagamentoFinanceiro(
+                VALOR_PAGO=float(item.VALOR_PAGO),
+                NUMERO_PEDIDO=item.NUMERO_PEDIDO
+            )
+            for item in pagamentos
+        ][0]
+
+        items = ctx.session.query(ip.ID_PRODUTO, ip.QTDE).filter(
+            ip.NUMERO_PEDIDO == NUMERO_PEDIDO
+        ).all()
+
+        itemsPedido = [
+            itemPedidoFinanceiro(
+                PRODUTO=await self.getDescricaoProduto(item.ID_PRODUTO),
+                QTDE= float(item.QTDE)
+            )
+            for item in items
+        ]
+
+        nomeCliente = ctx.session.query(p.NUMERO_PEDIDO, p.ID_CLIENTE, c.NOME_CLIENTE).filter(*
+            [p.NUMERO_PEDIDO == NUMERO_PEDIDO, p.ID_CLIENTE == c.ID_CLIENTE]
+        ).first().NOME_CLIENTE
+
+        await self.inserePagtoFuturo(
+            pedidoFinanceiro(
+                NUMERO_PEDIDO=NUMERO_PEDIDO,
+                NOME_CLIENTE=nomeCliente
+            ),
+            itemsPedido,
+            recordPagamento
+        )
+
 
     async def recalculaTotaisPedido(self, NUMERO_PEDIDO: int):
         p = ctx.mapPedido
@@ -1314,7 +1472,7 @@ class pedido:
         )
 
         qPg = (
-            ctx.session.query(pg.NUMERO_PEDIDO, pg.VALOR_PAGO)
+            ctx.session.query(pg.NUMERO_PEDIDO, pg.VALOR_PAGO, pg.FORMA_PAGTO)
             .filter(pg.NUMERO_PEDIDO == record.NUMERO_PEDIDO)
             .all()
         )
@@ -1336,6 +1494,8 @@ class pedido:
 
         ctx.session.execute(cmd)
         ctx.session.commit()
+
+        await self.refazPagamentoFuturo(NUMERO_PEDIDO)
 
     async def addItem(self, record: itemPedido):
         p = ctx.mapProduto
@@ -1457,7 +1617,7 @@ class pedido:
         ctx.session.commit()
 
         await self.recalculaTotaisPedido(numeroPedido)
-
+        
     async def addItemPagamento(self, dados: pagamentoPedido):
         p = ctx.mapPedido
 

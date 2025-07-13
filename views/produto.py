@@ -203,11 +203,11 @@ class produto:
                     NUMERO_ITEM=0,
                     ID_PRODUTO=rec.ID_PRODUTO,
                     DESCRICAO_PRODUTO=rec.DESCRICAO_PRODUTO,
-                    QTDE=1,
+                    QTDE=filtro.QTDE,
                     PRECO=await self.getPrecoAtacado(
                         getProduto(
                             ID_PRODUTO=rec.ID_PRODUTO,
-                            QTDE=1
+                            QTDE=filtro.QTDE
                         )
                     ),
                     TOTAL=rec.PRECO_BALCAO,
@@ -236,11 +236,12 @@ class produto:
                         NUMERO_ITEM=0,
                         ID_PRODUTO=rec.ID_PRODUTO,
                         DESCRICAO_PRODUTO=rec.DESCRICAO_PRODUTO,
-                        QTDE=1,
+                        QTDE=filtro.QTDE,
                         PRECO=await self.getPrecoAtacado(
                             getProduto(
                                 ID_PRODUTO=rec.ID_PRODUTO,
-                                QTDE=1)
+                                QTDE=filtro.QTDE
+                            )
                         ),
                         TOTAL=rec.PRECO_BALCAO,
                         ID_TRIBUTO=rec.ID_TRIBUTO,
@@ -281,7 +282,12 @@ class produto:
             listaProduto(
                 ID_PRODUTO=row.ID_PRODUTO,
                 DESCRICAO_PRODUTO=row.DESCRICAO_PRODUTO,
-                PRECO_BALCAO=0 if row.PRECO_BALCAO is None else float(row.PRECO_BALCAO),
+                PRECO_BALCAO=await self.getPrecoAtacado(
+                    getProduto(
+                        ID_PRODUTO=row.ID_PRODUTO,
+                        QTDE=filtro.QTDE
+                    )
+                ) if filtro.QTDE > 1 else float(row.PRECO_BALCAO),
                 ID_TRIBUTO=row.ID_TRIBUTO,
                 SALDO=0,
                 CODIGO_ZE="" if row.CODIGO_ZE is None else row.CODIGO_ZE,

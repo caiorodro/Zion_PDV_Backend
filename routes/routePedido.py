@@ -46,6 +46,7 @@ from models.Order import Order
 from models.pagamentoPedido import pagamentoPedido
 from models.reforco import reforco
 from models.sangria import sangria
+from models.senhaReset import senhaReset
 from models.TOTAL_PEDIDO import TOTAL_PEDIDO
 from views.caixa import Caixa
 from views.cliente import Cliente
@@ -1057,6 +1058,24 @@ async def getUsuarioFromCaixa(dados: itemCaixa):
         del ped
 
     return retorno
+
+@router.post('/checaSenhaReset')
+async def checaSenhaReset(dados: senhaReset):
+    ped = Caixa()
+
+    retorno = 0
+
+    try:
+        retorno = await ped.checaSenhaReset(dados)
+
+    except Exception as ex:
+        raise ex
+
+    finally:
+        del ped
+
+    return retorno
+
 # @router.post('/verifyTables')
 # async def verifyTables():
 #     ct = checkTables()

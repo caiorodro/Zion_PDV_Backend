@@ -34,8 +34,10 @@ from models.RESUMO_OPERACAO_CAIXA import (
 from models.ResumoFormaPagto import ResumoFormaPagto
 from models.ResumoFormaPagtoOrigem import ResumoFormaPagtoOrigem
 from models.ResumoOrigem import ResumoOrigem
+from models.senhaReset import senhaReset
 from models.totaisPorFormaPagto import totaisPorFormaPagto
 from models.ultimosCaixas import ultimosCaixas
+from models.usuarioTipo import usuarioTipo
 
 class Caixa:
     def __init__(self, keep=None, idUser=None):
@@ -106,7 +108,7 @@ class Caixa:
             else ""
         )
 
-    async def gravaAberturaCaixa(self, dados: aberturaCaixa) -> int:
+    async def gravaAberturaCaixa(self, dados: aberturaCaixa) -> usuarioTipo:
         senhaOk = await self.verificaSenhaAberturaCaixa(
             dadosUsuario(
                 ID_USUARIO=dados.ID_USUARIO,
@@ -115,7 +117,10 @@ class Caixa:
         )
 
         if not senhaOk:
-            return -1
+            return usuarioTipo(
+                ID_CAIXA=-1,
+                ADMIN=False
+            )
 
         cmd = ctx.tb_abertura_caixa.insert().values(
             ID_ABERTURA=0,
@@ -130,7 +135,18 @@ class Caixa:
 
         ctx.session.commit()
 
-        return int(result.inserted_primary_key[0])
+        idCaixa = int(result.inserted_primary_key[0])
+
+        u = ctx.mapUSUARIO
+
+        adminUsuario = ctx.session.query(u.TIPO_USUARIO).filter(
+            u.ID_USUARIO == dados.ID_USUARIO
+        ).first()
+
+        return usuarioTipo(
+            ID_CAIXA=idCaixa,
+            ADMIN=adminUsuario == 1
+        )
 
     async def verificaSenhaAberturaCaixa(self, dados: dadosUsuario) -> bool:
         u = ctx.mapUSUARIO
@@ -520,7 +536,7 @@ class Caixa:
         filtro.NUMERO_IMPRESSORA = 1 if filtro.NUMERO_IMPRESSORA == 0 else filtro.NUMERO_IMPRESSORA
         
         cmd = ctx.tb_abertura_caixa.update().values(
-            IMPRESSAO=filtro.NUMERO_IMPRESSORA
+            IMPRESSAO = 1 if filtro.NUMERO_IMPRESSORA == 0 else filtro.NUMERO_IMPRESSORA
         ).where(
             ctx.mapAberturaCaixa.ID_ABERTURA == filtro.ID_CAIXA
         )
@@ -1003,6 +1019,15 @@ class Caixa:
             taxaPagamento = 0.00
 
         return float(taxaPagamento)
+
+    async def checaSenhaReset(self, dados: senhaReset) -> bool:
+        u = ctx.mapUSUARIO
+
+        passwordOk = ctx.session.query(u).filter(
+            u.SENHA_USUARIO == dados.SENHA
+        ).first()
+
+        return passwordOk is not None
 
     def __del__(self):
         ctx.session.close_all()
