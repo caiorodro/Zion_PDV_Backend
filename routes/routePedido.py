@@ -1,4 +1,3 @@
-import traceback
 
 from fastapi import APIRouter
 from fastapi.security import HTTPBearer

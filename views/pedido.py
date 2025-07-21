@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime, timedelta
 from typing import List
 
@@ -8,6 +9,7 @@ import base.qModel as ctx
 from base.qBase import qBase
 from cfg.config import Config
 from models.clienteEndereco import clienteEndereco
+from models.clientePedido import clientePedido
 from models.conclusaoPagamento import conclusaoPagamento
 from models.dadosNFCe import dadosNFCe
 from models.dadosPedido import dadosPedido
@@ -85,8 +87,8 @@ class pedido:
         if not isinstance(consumidorFinal, clienteEndereco):
             raise Exception('Cliente consumidor final não cadastrado')
         
-        order.pedido.ID_CLIENTE = consumidorFinal.ID_CLIENTE
-        order.pedido.ID_ENDERECO = consumidorFinal.ID_ENDERECO
+        order.pedido.ID_CLIENTE = consumidorFinal.ID_CLIENTE if order.pedido.ID_CLIENTE == 0 else order.pedido.ID_CLIENTE
+        order.pedido.ID_ENDERECO = consumidorFinal.ID_ENDERECO if order.pedido.ID_ENDERECO == 0 else order.pedido.ID_ENDERECO
 
         order.pedido = await self.preencheConsumidorFinal(
             consumidorFinal,
@@ -146,6 +148,8 @@ class pedido:
         return numeroPedido
 
     def insereNovoPedido(self, pedido: pedido) -> int:
+        cliente =self.getClientePedido(pedido.ID_CLIENTE, pedido.ID_ENDERECO)
+
         cmd = ctx.tb_pedido.insert().values(
             NUMERO_PEDIDO=0,
             DATA_HORA=datetime.strptime(pedido.DATA_HORA, "%d/%m/%Y %H:%M"),
@@ -164,10 +168,10 @@ class pedido:
             ID_ENDERECO=pedido.ID_ENDERECO,
             CPF=pedido.CPF,
             IE=pedido.IE,
-            NOME_CLIENTE=pedido.NOME_CLIENTE,
-            ENDERECO_CLIENTE=pedido.ENDERECO_CLIENTE,
-            BAIRRO_CLIENTE=pedido.BAIRRO_CLIENTE,
-            TELEFONE_CLIENTE=pedido.TELEFONE_CLIENTE,
+            NOME_CLIENTE=cliente.NOME_CLIENTE,
+            ENDERECO_CLIENTE=cliente.ENDERECO,
+            BAIRRO_CLIENTE=cliente.BAIRRO,
+            TELEFONE_CLIENTE=cliente.TELEFONE,
             LATITUDE=pedido.LATITUDE,
             LONGITUDE=pedido.LONGITUDE,
             ORIGEM=pedido.ORIGEM,
@@ -497,7 +501,7 @@ class pedido:
             SERIE_NF=_nf[1],
             CHAVE_ACESSO_NF="",
             PROTOCOLO_AUTORIZACAO="",
-            PROCESSADO=0,
+            PROCESSADO=1,
             ASSINATURA_NFCE="",
             DATA_AUTORIZACAO_NFCE="",
             CHAVE_PEDIDO="",
@@ -1272,6 +1276,16 @@ class pedido:
     async def savePedido(self, record: dadosPedido):
         p = ctx.mapPedido
         pg = ctx.mapPedidoPagamento
+        c = ctx.mapCliente
+        e = ctx.mapEnderecoCliente
+
+        nomeCliente = ctx.session.query(c.NOME_CLIENTE).filter(
+            c.ID_CLIENTE == record.ID_CLIENTE
+        ).first()[0]
+
+        endereco = ctx.session.query(e).filter(
+            e.ID_ENDERECO == record.ID_ENDERECO
+        ).first()
 
         totalPedido = round(
             (record.TOTAL_PRODUTOS + record.TAXA_ENTREGA + record.ADICIONAL)
@@ -1296,7 +1310,10 @@ class pedido:
 
         cmd = ctx.tb_pedido.update().values(
             ID_CLIENTE=record.ID_CLIENTE,
+            NOME_CLIENTE = nomeCliente,
             ID_ENDERECO=record.ID_ENDERECO,
+            ENDERECO_CLIENTE = F'{endereco.ENDERECO}, {endereco.NUMERO_ENDERECO} {endereco.COMPLEMENTO_ENDERECO}',
+            BAIRRO_CLIENTE = endereco.BAIRRO,
             ID_TRANSPORTE=record.ID_TRANSPORTE,
             TOTAL_PRODUTOS=record.TOTAL_PRODUTOS,
             TAXA_ENTREGA=record.TAXA_ENTREGA,
@@ -2463,6 +2480,43 @@ class pedido:
 
         ctx.session.execute(cmd)
         ctx.session.commit()
+
+    def getClientePedido(self, idCliente: int, idEndereco: int) -> clientePedido:
+
+        c = ctx.mapCliente
+        e = ctx.mapEnderecoCliente
+
+        cliente = ctx.session.query(
+            c.CPF,
+            c.NOME_CLIENTE,
+            e.ENDERECO,
+            e.NUMERO_ENDERECO,
+            e.COMPLEMENTO_ENDERECO,
+            e.BAIRRO,
+            c.TELEFONE_CLIENTE,
+            e.MUNICIPIO,
+            e.UF,
+            c.EMAIL_CLIENTE
+        ).filter(*[
+            e.ID_CLIENTE == idCliente,
+            e.ID_ENDERECO == idEndereco,
+            c.ID_CLIENTE == e.ID_CLIENTE
+        ]).first()
+
+        retorno = clientePedido(
+            CPF = cliente.CPF,
+            NOME_CLIENTE = cliente.NOME_CLIENTE,
+            ENDERECO = cliente.ENDERECO,
+            NUMERO_ENDERECO = cliente.NUMERO_ENDERECO,
+            COMPLEMENTO = cliente.COMPLEMENTO_ENDERECO,
+            BAIRRO = cliente.BAIRRO,
+            TELEFONE = cliente.TELEFONE_CLIENTE,
+            CIDADE = cliente.MUNICIPIO,
+            UF = cliente.UF,
+            EMAIL = cliente.EMAIL_CLIENTE
+        )
+
+        return retorno
 
     def __del__(self):
         ctx.session.close_all()

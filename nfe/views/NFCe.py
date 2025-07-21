@@ -111,6 +111,8 @@ class NFCe:
         ip = ctx.mapItemPedido
         pg = ctx.mapPedidoPagamento
         t = ctx.mapTributo
+        e = ctx.mapEnderecoCliente
+        c = ctx.mapCliente
 
         filters = [p.NUMERO_PEDIDO == filtro.NUMERO_PEDIDO]
 
@@ -170,6 +172,17 @@ class NFCe:
 
         rec = pedido[0]
 
+        endereco = ctx.session.query(e).filter(
+            e.ID_ENDERECO == rec.ID_ENDERECO
+        ).first()
+
+        cliente = ctx.session.query(c).filter(
+            c.ID_CLIENTE == rec.ID_CLIENTE
+        ).first()
+
+        logradouro = endereco.ENDERECO
+        logradouro = logradouro[0: logradouro.index(',')] if ',' in logradouro else logradouro
+
         _pedido = pedidoNFe(
             NUMERO_PEDIDO=rec.NUMERO_PEDIDO,
             ID_CLIENTE=rec.ID_CLIENTE,
@@ -184,7 +197,16 @@ class NFCe:
             VALOR_DESCONTO=float(rec.DESCONTO) if rec.DESCONTO is not None else 0.00,
             INFO_ADICIONAL=rec.INFO_ADICIONAL,
             ID_CAIXA=rec.ID_CAIXA,
-            ID_ENDERECO=rec.ID_ENDERECO
+            ID_ENDERECO=rec.ID_ENDERECO,
+            ENDERECO = logradouro,
+            NUMERO_ENDERECO = endereco.NUMERO_ENDERECO,
+            COMPLEMENTO_ENDERECO = endereco.COMPLEMENTO_ENDERECO,
+            BAIRRO = endereco.BAIRRO,
+            CEP = endereco.CEP,
+            CIDADE = endereco.MUNICIPIO,
+            UF = endereco.UF,
+            TELEFONE = cliente.TELEFONE_CLIENTE,
+            EMAIL = cliente.EMAIL_CLIENTE
         )
 
         retorno = dadosPedido(

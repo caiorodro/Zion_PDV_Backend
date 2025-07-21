@@ -14,3 +14,12 @@ class pedido:
     INFO_ADICIONAL: str
     ID_CAIXA: int
     ID_ENDERECO:int
+    ENDERECO: str
+    NUMERO_ENDERECO: str
+    COMPLEMENTO_ENDERECO: str
+    BAIRRO: str
+    CEP: str
+    CIDADE: str
+    UF: str
+    TELEFONE: str
+    EMAIL: str
