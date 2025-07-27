@@ -115,6 +115,8 @@ class pedido:
 
         assert numeroPedido > 0
 
+        order.pedido.NUMERO_PEDIDO = numeroPedido
+
         for item in order.itemsPedido:
             item.NUMERO_PEDIDO = numeroPedido
 
@@ -266,11 +268,17 @@ class pedido:
         [ctx.session.execute(item) for item in (cmd, cmd1)]
 
     async def gravaPagamentos(self, item: pedidoPagamento) -> bool:
+
+        formaPagto = item.FORMA_PAGTO
+
+        if '.' in formaPagto:
+            formaPagto = formaPagto[formaPagto.index('.') + 1:].strip()
+
         cmd = ctx.tb_pedido_pagamento.insert().values(
             ID_PAGAMENTO=0,
             NUMERO_PEDIDO=item.NUMERO_PEDIDO,
             DATA_HORA=datetime.strptime(item.DATA_HORA, "%d/%m/%Y %H:%M"),
-            FORMA_PAGTO=item.FORMA_PAGTO,
+            FORMA_PAGTO=formaPagto,
             VALOR_PAGO=item.VALOR_PAGO,
             ID_CAIXA=item.ID_CAIXA,
             ORIGEM=item.ORIGEM,
@@ -453,7 +461,7 @@ class pedido:
                 await self.inserePagtoFuturo(
                     pedidoFinanceiro(
                         NUMERO_PEDIDO=_pedido.NUMERO_PEDIDO,
-                        NOME_CLIENTE=_pedido.NOME_CLIENTE
+                        NOME_CLIENTE=await self.getNomeCliente(_pedido.ID_CLIENTE)
                     ), 
                     itemsFinanceiro, 
                     pedidoPagamentoFinanceiro(
@@ -678,9 +686,11 @@ class pedido:
             [f"[{item.DESCRICAO_PRODUTO}, Qtde: {str(item.QTDE)}]" for item in items]
         )
 
+        nomeCliente = await self.getNomeCliente(pedido.ID_CLIENTE)
+
         descricao = "".join(
             [
-                f"Recebimento futuro {pedido.NOME_CLIENTE} - Nr. Pedido {pedido.NUMERO_PEDIDO}",
+                f"Recebimento futuro {nomeCliente} - Nr. Pedido {pedido.NUMERO_PEDIDO}",
                 f", ITENS: {strItems}",
             ]
         )
@@ -858,7 +868,7 @@ class pedido:
 
             retorno = await self.getByNumeroPedido(filtro)
 
-            if len(retorno) == 0 and filtro.ORIGEM == "Zé delivery":
+            if len(retorno) == 0 and filtro.ORIGEM == "Zé Delivery":
                 retorno = await self.getByNumeroZe(filtro)
 
             if len(retorno) == 0 and filtro.ORIGEM == "IFood":

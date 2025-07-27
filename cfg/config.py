@@ -45,11 +45,11 @@ class Config(object):
 
     ORIGEM = (
         "Todos",
-        "Zé delivery",
+        "Zé Delivery",
         "IFood",
         "AnotaAi",
         "Goomer",
-        "Delivery próprio",
+        "delivery próprio",
         "Balcão",
     )
 
