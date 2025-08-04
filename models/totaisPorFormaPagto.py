@@ -11,3 +11,4 @@ class totaisPorFormaPagto(BaseModel):
     VALOR_FECHAMENTO: float
     DIFERENCA: float
     TOTAL_GERAL: float
+    VALOR_ABERTURA: float

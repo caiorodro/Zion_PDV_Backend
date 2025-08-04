@@ -1,8 +1,12 @@
 from datetime import datetime
+from typing import List
 
 import base.qModel as ctx
 from base.qBase import qBase
+
+from models.filtroCAIXA import filtroCAIXA
 from models.filtroSangria import filtroSangria
+from models.impressaoSangria import impressaoSangria
 from models.listaSangria import listaSangria
 from models.sangria import sangria
 
@@ -79,3 +83,35 @@ class Sangria:
         )
 
         return retorno
+
+    async def printSangria(self, filtro: filtroCAIXA) -> List[impressaoSangria]:
+        s = ctx.mapSangria
+        u = ctx.mapUSUARIO
+        a = ctx.mapAberturaCaixa
+
+        querySangria = ctx.session.query(
+            s.DATA_SANGRIA,
+            s.VALOR_SANGRIA,
+            s.DESCRICAO_SANGRIA,
+            u.NOME_USUARIO,
+            a.DATA_ABERTURA
+        ).filter(*
+            [
+                s.ID_ABERTURA == filtro.ID_CAIXA,
+                s.ID_USUARIO == u.ID_USUARIO,
+                s.ID_ABERTURA == a.ID_ABERTURA
+            ]
+        ).all()
+
+        retorno = [
+            impressaoSangria(
+                DATA_SANGRIA=self.qBase.TrataDataHora(item.DATA_SANGRIA),
+                DESCRICAO_CAIXA=item.DESCRICAO_SANGRIA,
+                VALOR_SANGRIA=round(float(item.VALOR_SANGRIA), 2),
+                USUARIO_CAIXA=item.NOME_USUARIO,
+                CAIXA_DE=self.qBase.TrataDataHora(item.DATA_ABERTURA)
+            )
+            for item in querySangria
+        ]
+
+        return retorno 

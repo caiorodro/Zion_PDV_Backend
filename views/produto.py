@@ -249,6 +249,36 @@ class produto:
                     )
                 ]
 
+        if not any(lista):
+            pesquisa = await self.buscaProdutosSimilares(
+                filtroDescricaoProduto(
+                    DESCRICAO=filtro.CODIGO,
+                    QTDE=filtro.QTDE
+                )
+            )
+
+            if len(pesquisa) == 1:
+                rec = pesquisa[0]
+
+                lista = [
+                    itemPedidoCaixa(
+                        NUMERO_PEDIDO=0,
+                        NUMERO_ITEM=0,
+                        ID_PRODUTO=rec.ID_PRODUTO,
+                        DESCRICAO_PRODUTO=rec.DESCRICAO_PRODUTO,
+                        QTDE=filtro.QTDE,
+                        PRECO=await self.getPrecoAtacado(
+                            getProduto(
+                                ID_PRODUTO=rec.ID_PRODUTO,
+                                QTDE=filtro.QTDE
+                            )
+                        ),
+                        TOTAL=rec.PRECO_BALCAO,
+                        ID_TRIBUTO=rec.ID_TRIBUTO,
+                        QTDE_FRACIONADA=await self.qBase.isFamiliaBalanca(rec.ID_FAMILIA) if isinstance(rec.ID_FAMILIA, int) else False
+                    )
+                ]
+
         return lista
 
     def getSearchList(self, filtro: str) -> List[str]:
@@ -278,10 +308,21 @@ class produto:
 
         query = ctx.session.query(p).filter(*filters).limit(50).all()
 
+        def joinDescricaoECodigo(item: ctx.mapProduto) -> str:
+            retorno = item.DESCRICAO_PRODUTO
+
+            try:
+                if len(item.CODIGO_PRODUTO_PDV) > 0:
+                    retorno += f' [{item.CODIGO_PRODUTO_PDV}]'
+            except:
+                pass
+
+            return retorno
+
         lista = [
             listaProduto(
                 ID_PRODUTO=row.ID_PRODUTO,
-                DESCRICAO_PRODUTO=row.DESCRICAO_PRODUTO,
+                DESCRICAO_PRODUTO=joinDescricaoECodigo(row),
                 PRECO_BALCAO=await self.getPrecoAtacado(
                     getProduto(
                         ID_PRODUTO=row.ID_PRODUTO,
@@ -292,7 +333,8 @@ class produto:
                 SALDO=0,
                 CODIGO_ZE="" if row.CODIGO_ZE is None else row.CODIGO_ZE,
                 PRODUTO_ATIVO=row.PRODUTO_ATIVO,
-                QTDE_FRACIONADA=await self.qBase.isFamiliaBalanca(row.ID_FAMILIA) if isinstance(row.ID_FAMILIA, int) else False
+                QTDE_FRACIONADA=await self.qBase.isFamiliaBalanca(row.ID_FAMILIA) if isinstance(row.ID_FAMILIA, int) else False,
+                ID_FAMILIA=row.ID_FAMILIA
             )
             for row in query
         ]

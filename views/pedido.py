@@ -86,7 +86,7 @@ class pedido:
 
         if not isinstance(consumidorFinal, clienteEndereco):
             raise Exception('Cliente consumidor final não cadastrado')
-        
+
         order.pedido.ID_CLIENTE = consumidorFinal.ID_CLIENTE if order.pedido.ID_CLIENTE == 0 else order.pedido.ID_CLIENTE
         order.pedido.ID_ENDERECO = consumidorFinal.ID_ENDERECO if order.pedido.ID_ENDERECO == 0 else order.pedido.ID_ENDERECO
 
@@ -151,6 +151,9 @@ class pedido:
 
     def insereNovoPedido(self, pedido: pedido) -> int:
         cliente =self.getClientePedido(pedido.ID_CLIENTE, pedido.ID_ENDERECO)
+
+        if 'consumidor final' not in cliente.NOME_CLIENTE.lower():
+            pedido.ORIGEM = 'Delivery próprio'
 
         cmd = ctx.tb_pedido.insert().values(
             NUMERO_PEDIDO=0,

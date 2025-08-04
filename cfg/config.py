@@ -49,7 +49,7 @@ class Config(object):
         "IFood",
         "AnotaAi",
         "Goomer",
-        "delivery próprio",
+        "Delivery próprio",
         "Balcão",
     )
 

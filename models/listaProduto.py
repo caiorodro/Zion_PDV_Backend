@@ -9,3 +9,4 @@ class listaProduto(BaseModel):
     CODIGO_ZE: str
     PRODUTO_ATIVO: int
     QTDE_FRACIONADA: bool
+    ID_FAMILIA: int

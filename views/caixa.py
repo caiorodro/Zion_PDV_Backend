@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime, timedelta
 from typing import List
 
@@ -23,6 +24,10 @@ from models.listaDePagamentos import listaDePagamentos
 from models.listaDeUsuario import listaDeUsuario
 from models.nsu import nsu
 from models.pedidosPorStatus import pedidosPorStatus
+from models.periodoUsuario import periodoUsuario
+from models.resumoFechamento import resumoFechamento
+from models.resumoOrigemFormaPagto import resumoOrigemFormaPagto
+
 from models.RESUMO_OPERACAO_CAIXA import (
     RESUMO_IMPRESSAO_CAIXA,
     TOTAIS_CAIXA_FORMA_PAGTO,
@@ -206,7 +211,7 @@ class Caixa:
 
         return retorno
 
-    async def busca_Formas_de_Pagto_no_Caixa(self, filtro: filtroFormasPagtoCaixa):
+    async def calcula_Formas_de_Pagto_no_Caixa(self, filtro: filtroFormasPagtoCaixa) -> List[formaPagtoCaixa]:
         p = ctx.mapPedido
         a = ctx.mapPedidoPagamento
 
@@ -223,10 +228,16 @@ class Caixa:
 
         x = set([item.FORMA_PAGTO for item in query])
 
-        lista = sorted(
+        retorno = sorted(
             [formaPagtoCaixa(DESCRICAO_FORMA=item) for item in x],
             key=lambda e: e.DESCRICAO_FORMA,
         )
+
+        return retorno
+
+    async def busca_Formas_de_Pagto_no_Caixa(self, filtro: filtroFormasPagtoCaixa):
+       
+        lista = await self.calcula_Formas_de_Pagto_no_Caixa(filtro)
 
         retorno = [
             formaPagtoCaixa(DESCRICAO_FORMA=item.DESCRICAO_FORMA).model_dump_json()
@@ -235,11 +246,45 @@ class Caixa:
 
         return self.qBase.toRoute(retorno, 200)
 
-    async def get_Totais_Por_Forma_Pagto(self, filtro: filtroFormasPagtoCaixa):
+    async def getPeriodo_e_Usuario(self, ID_CAIXA: int) -> periodoUsuario:
+        a = ctx.mapAberturaCaixa
+        f = ctx.mapFechamentoCaixa
+        u = ctx.mapUSUARIO
+
+        Abertura = ctx.session.query(
+            a.DATA_ABERTURA,
+            a.ID_USUARIO
+            ).filter(
+                a.ID_ABERTURA == ID_CAIXA
+            ).first()
+        
+        nomeUsuario = ctx.session.query(u.NOME_USUARIO).filter(
+            u.ID_USUARIO == Abertura.ID_USUARIO
+        ).first()[0]
+
+        hoje = datetime.strftime(datetime.now(), '%d/%m/%Y %H:%M')
+
+        fechamento = ctx.session.query(f.DATA_FECHAMENTO).filter(
+            f.ID_ABERTURA == ID_CAIXA
+        ).all()
+
+        dataFechamento = datetime.strftime(fechamento[0][0], '%d/%m/%Y %H:%M') if len(fechamento) > 0 else hoje
+
+        retorno = periodoUsuario(
+            USUARIO=nomeUsuario,
+            PERIODO_INICIAL=datetime.strftime(Abertura.DATA_ABERTURA, '%d/%m/%Y %H:%M'),
+            PERIODO_FINAL=dataFechamento
+        )
+
+        return retorno
+
+    async def calcula_Totais_Por_Forma_Pagto(self, filtro: filtroFormasPagtoCaixa) -> totaisPorFormaPagto:
         p = ctx.mapPedido
         pg = ctx.mapPedidoPagamento
         s = ctx.mapSangria
         r = ctx.mapReforco
+        a = ctx.mapAberturaCaixa
+        f = ctx.mapFechamentoCaixa
 
         _filters = [
             p.STATUS_PEDIDO == 3,
@@ -270,6 +315,10 @@ class Caixa:
 
         totalGeral = await self.get_Total_Geral_Caixa(filtro)
 
+        valorAbertura = ctx.session.query(a.VALOR_ABERTURA).filter(
+            a.ID_ABERTURA == filtro.ID_CAIXA
+        ).first().VALOR_ABERTURA
+
         retorno = totaisPorFormaPagto(
             FORMA_PAGTO="DINHEIRO",
             TROCO=0.00,
@@ -280,7 +329,8 @@ class Caixa:
             TOTAL_FINAL=0,
             VALOR_FECHAMENTO=0,
             DIFERENCA=0,
-            TOTAL_GERAL=totalGeral
+            TOTAL_GERAL=totalGeral,
+            VALOR_ABERTURA=float(valorAbertura)
         )
 
         try:
@@ -297,7 +347,8 @@ class Caixa:
                     TOTAL_FINAL=0,
                     VALOR_FECHAMENTO=0,
                     DIFERENCA=0,
-                    TOTAL_GERAL=totalGeral
+                    TOTAL_GERAL=totalGeral,
+                    VALOR_ABERTURA=float(valorAbertura)
                 )
                 for item in totais
             ][0]
@@ -317,27 +368,50 @@ class Caixa:
                 .all()
             )
 
+            fechamento = ctx.session.query(
+                f.DIFERENCA,
+                f.VALOR_FECHAMENTO,
+                f.DATA_FECHAMENTO
+            ).filter(*[
+                f.ID_ABERTURA == filtro.ID_CAIXA,
+                f.FORMA_PAGTO == filtro.FORMA_PAGTO
+            ]).all()
+
             rec = sangrias[0][0]
             retorno.SANGRIA = float(rec) if rec is not None else 0.00
 
             rec = reforcos[0][0]
             retorno.REFORCO = float(rec) if rec is not None else 0.00
 
+            retorno.DIFERENCA = float(fechamento[0].DIFERENCA) if len(fechamento) > 0 else 0
+            retorno.VALOR_FECHAMENTO = float(fechamento[0].VALOR_FECHAMENTO) if len(fechamento) > 0 else 0
+
         retorno.TOTAL_FINAL = (
             (retorno.TOTAL_PAGTO + retorno.REFORCO) - retorno.SANGRIA
         ) - retorno.TROCO
 
+        retorno.TOTAL_FINAL = round(retorno.TOTAL_FINAL, 2)
+
+        return retorno
+
+    async def get_Totais_Por_Forma_Pagto(self, filtro: filtroFormasPagtoCaixa):
+        
+        retorno = await self.calcula_Totais_Por_Forma_Pagto(filtro)
+
         return self.qBase.toRoute(retorno.model_dump_json(), 200)
 
-    async def verificaCaixaAberto(self, filtro: filtroCAIXA) -> bool:
+    async def verificaCaixaAberto(self, filtro: filtroFormasPagtoCaixa) -> bool:
         a = ctx.mapAberturaCaixa
         f = ctx.mapFechamentoCaixa
 
-        filters = [a.ID_ABERTURA == filtro.ID_CAIXA, a.VALOR_FECHAMENTO == 0.00]
+        filters = [a.ID_ABERTURA == filtro.ID_CAIXA]
 
         abertura = ctx.session.query(a).filter(*filters).all()
 
-        fechamento = ctx.session.query(f).filter(f.ID_ABERTURA == filtro.ID_CAIXA).all()
+        fechamento = ctx.session.query(f).filter(*[
+            f.ID_ABERTURA == filtro.ID_CAIXA,
+            f.FORMA_PAGTO == filtro.FORMA_PAGTO
+        ]).all()
 
         return len(abertura) > 0 and len(fechamento) == 0
 
@@ -530,7 +604,7 @@ class Caixa:
 
         TOTAL_FINAL = ((totalDePagamentos + REFORCO) - SANGRIA) - Troco
 
-        return TOTAL_FINAL
+        return round(TOTAL_FINAL, 2)
 
     async def setImpressaoCaixa(self, filtro: filtroFormasPagtoCaixa):
         filtro.NUMERO_IMPRESSORA = 1 if filtro.NUMERO_IMPRESSORA == 0 else filtro.NUMERO_IMPRESSORA
@@ -1028,6 +1102,68 @@ class Caixa:
         ).first()
 
         return passwordOk is not None
+
+    async def getResumoFechamento(self, filtro: filtroCAIXA) -> List[resumoFechamento]:
+
+        formasPagto = await self.calcula_Formas_de_Pagto_no_Caixa(
+            filtroFormasPagtoCaixa(
+                ID_CAIXA=filtro.ID_CAIXA,
+                FORMA_PAGTO='',
+                NUMERO_IMPRESSORA=0
+            )
+        )
+
+        retorno = []
+
+        periodo = await self.getPeriodo_e_Usuario(filtro.ID_CAIXA)
+
+        for item in formasPagto:
+            totais = await self.calcula_Totais_Por_Forma_Pagto(
+                filtroFormasPagtoCaixa(
+                    ID_CAIXA=filtro.ID_CAIXA,
+                    FORMA_PAGTO=item.DESCRICAO_FORMA,
+                    NUMERO_IMPRESSORA=0
+                )
+            )
+
+            dado = resumoFechamento(
+                USUARIO = periodo.USUARIO,
+                PERIODO_INICIAL = periodo.PERIODO_INICIAL,
+                PERIODO_FINAL = periodo.PERIODO_FINAL,
+                FORMA_PAGTO=item.DESCRICAO_FORMA,
+                ABERTURA=totais.VALOR_ABERTURA,
+                TOTAL=totais.TOTAL_PAGTO,
+                DESCONTO=totais.DESCONTO,
+                SANGRIA=totais.SANGRIA,
+                REFORCO=totais.REFORCO,
+                TOTAL_GERAL=totais.TOTAL_GERAL,
+                DIFERENCA=totais.DIFERENCA,
+                DATA_FECHAMENTO='',
+                VALOR_FECHAMENTO=totais.VALOR_FECHAMENTO
+            )
+
+            retorno.append(dado)
+
+        return retorno
+
+    async def getResumoFechamentoPorOrigem(self, filtro: filtroCAIXA) -> List[resumoOrigemFormaPagto]:
+
+        totais = await self.calculaCaixaPorFormaPagtoOrigem(
+            filtroCAIXA(
+                ID_CAIXA=filtro.ID_CAIXA
+            )
+        )
+
+        retorno = [
+            resumoOrigemFormaPagto(
+                FORMA_PAGTO=item.FORMA_PAGTO,
+                ORIGEM=item.ORIGEM,
+                TOTAL=item.VALOR_VENDA
+            )
+            for item in totais
+        ]
+
+        return retorno
 
     def __del__(self):
         ctx.session.close_all()

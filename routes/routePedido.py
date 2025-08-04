@@ -37,7 +37,6 @@ from models.itemCaixa import itemCaixa
 from models.itemPedido import itemPedido
 from models.itemTributo import itemTributo
 from models.listaDePagamentos import listaDePagamentos
-from models.listaDePedido import listaDePedido
 from models.NFe_Finalizada import NFe_Finalizada
 from models.nsu import nsu
 from models.numeroItemPedido import numeroItemPedido
@@ -336,7 +335,7 @@ async def get_Totais_Por_Forma_Pagto(filtro: filtroFormasPagtoCaixa):
 
 
 @router.get("/verificaCaixaAberto")
-async def verificaCaixaAberto(filtro: filtroCAIXA):
+async def verificaCaixaAberto(filtro: filtroFormasPagtoCaixa):
     _caixa = Caixa()
     retorno = None
 
@@ -1090,6 +1089,54 @@ async def getPedidoParaEmissao(filtro: filtroNumeroPedido):
 
     try:
         retorno = await ped.getPedidoParaEmissao(filtro)
+    except Exception as ex:
+        raise ex
+
+    finally:
+        del ped
+
+    return retorno
+
+@router.get('/printSangria')
+async def printSangria(ID_CAIXA: filtroCAIXA):
+    ped = Sangria()
+
+    retorno = None
+
+    try:
+        retorno = await ped.printSangria(ID_CAIXA)
+    except Exception as ex:
+        raise ex
+
+    finally:
+        del ped
+
+    return retorno
+
+@router.get('/getResumoFechamento')
+async def getResumoFechamento(filtro: filtroCAIXA):
+    ped = Caixa()
+
+    retorno = None
+
+    try:
+        retorno = await ped.getResumoFechamento(filtro)
+    except Exception as ex:
+        raise ex
+
+    finally:
+        del ped
+
+    return retorno
+
+@router.get('/getResumoFechamentoPorOrigem')
+async def getResumoFechamentoPorOrigem(filtro: filtroCAIXA):
+    ped = Caixa()
+
+    retorno = None
+
+    try:
+        retorno = await ped.getResumoFechamentoPorOrigem(filtro)
     except Exception as ex:
         raise ex
 
