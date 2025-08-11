@@ -1,4 +1,6 @@
 from decimal import Decimal
+import json
+import os
 from typing import List
 
 from sqlalchemy import func
@@ -10,6 +12,7 @@ from models.filtroCodigoProduto import filtroCodigoProduto
 from models.filtroDescricaoProduto import filtroDescricaoProduto
 from models.filtroProduto import filtroProduto
 from models.getProduto import getProduto
+from models.ItemBalanca import itemBalanca
 from models.itemPedidoCaixa import itemPedidoCaixa
 from models.listaDeProduto import listaDeProduto
 from models.listaProduto import listaProduto
@@ -131,10 +134,32 @@ class produto:
 
     async def getItemBalanca(self, filtro: filtroCodigoProduto) -> produtoBalanca | None:
 
-        if len(self.qBase.onlyNumbers(filtro.CODIGO)) != 13:
+        dadosBalanca = itemBalanca(
+            TAMANHO_CODIGO_BARRAS=13,
+            POSICAO_CODIGO_PRODUTO=[1, 7],
+            POSICAO_QTDE_PESO=[7, -1]
+        )
+
+        fileBalanca = 'cfg/itemBalanca.json'
+
+        if os.path.exists(fileBalanca):
+            content = ''
+
+            try:
+                with open(fileBalanca, 'r') as fi:
+                    content = json.loads(fi.read())
+
+                dadosBalanca = itemBalanca(**content)
+
+            except Exception as ex:
+                print(f'Error on read Balança file {ex.args[0]}')
+
+        if len(self.qBase.onlyNumbers(filtro.CODIGO)) != dadosBalanca.TAMANHO_CODIGO_BARRAS:
             return None
 
-        codigoBalanca = str(int(filtro.CODIGO[1 : 7]))
+        codigoBalanca = str(int(
+            filtro.CODIGO[dadosBalanca.POSICAO_CODIGO_PRODUTO[0] : dadosBalanca.POSICAO_CODIGO_PRODUTO[1]]
+            ))
 
         p = ctx.mapProduto
 
@@ -148,9 +173,11 @@ class produto:
             if item.ID_FAMILIA in self.prefs.FAMILIAS_BALANCA
         ]
 
-        record =  produtoBalanca(
+        record = produtoBalanca(
             ITEM_PRODUTO=itemsBalanca[0],
-            QTDE=float(filtro.CODIGO[7:]) / 1000
+            QTDE=float(filtro.CODIGO[
+                dadosBalanca.POSICAO_QTDE_PESO[0]: dadosBalanca.POSICAO_QTDE_PESO[1]
+                ]) / 1000
         ) if any(items) else None
 
         return record
@@ -308,21 +335,10 @@ class produto:
 
         query = ctx.session.query(p).filter(*filters).limit(50).all()
 
-        def joinDescricaoECodigo(item: ctx.mapProduto) -> str:
-            retorno = item.DESCRICAO_PRODUTO
-
-            try:
-                if len(item.CODIGO_PRODUTO_PDV) > 0:
-                    retorno += f' [{item.CODIGO_PRODUTO_PDV}]'
-            except:
-                pass
-
-            return retorno
-
         lista = [
             listaProduto(
                 ID_PRODUTO=row.ID_PRODUTO,
-                DESCRICAO_PRODUTO=joinDescricaoECodigo(row),
+                DESCRICAO_PRODUTO=row.DESCRICAO_PRODUTO,
                 PRECO_BALCAO=await self.getPrecoAtacado(
                     getProduto(
                         ID_PRODUTO=row.ID_PRODUTO,

@@ -5,7 +5,7 @@ class itemPedido(BaseModel):
     NUMERO_PEDIDO: int
     ID_PRODUTO: int
     CODIGO_PRODUTO: str
-    QTDE: int
+    QTDE: float
     PRECO_UNITARIO: float
     VALOR_TOTAL: float
     ID_TRIBUTO: int

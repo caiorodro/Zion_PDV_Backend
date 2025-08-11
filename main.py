@@ -15,7 +15,7 @@ app = FastAPI(
         "url": "https://portalziondelivery.com.br/pdv",
         "email": "caiorodro@gmail.com",
     },
-    license_info={"name": "Zion PDV", "url": "https://portalziondelivery.com.br/pdv"},
+    license_info={"name": "Zion PDV", "url": "https://portalziondelivery.com.br/pdv"}
 )
 
 app.include_router(router)
