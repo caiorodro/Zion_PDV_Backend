@@ -11,6 +11,7 @@ from cfg.config import Config
 from models.clienteEndereco import clienteEndereco
 from models.clientePedido import clientePedido
 from models.conclusaoPagamento import conclusaoPagamento
+from models.dadosEmitente import dadosEmitente
 from models.dadosNFCe import dadosNFCe
 from models.dadosPedido import dadosPedido
 from models.editPedido import editItemPedido, editPedido, editPedidoPagamento
@@ -1124,6 +1125,7 @@ class pedido:
         pedido = (
             ctx.session.query(
                 p.NUMERO_PEDIDO,
+                p.CPF,
                 p.ID_CLIENTE,
                 p.ID_ENDERECO,
                 p.NOME_CLIENTE,
@@ -1133,7 +1135,10 @@ class pedido:
                 p.TAXA_ENTREGA,
                 p.ADICIONAL,
                 p.DESCONTO,
-                p.INFO_ADICIONAL,
+                p.TOTAL_PRODUTOS,
+                p.TOTAL_PEDIDO,
+                p.TROCO,
+                p.INFO_ADICIONAL
             )
             .filter(*filters)
             .all()
@@ -1177,6 +1182,7 @@ class pedido:
         retorno = editPedido(
             NUMERO_PEDIDO=rec.NUMERO_PEDIDO,
             ID_CLIENTE=rec.ID_CLIENTE,
+            CPF=rec.CPF,
             NOME_CLIENTE=rec.NOME_CLIENTE,
             ID_TRANSPORTE=0 if rec.ID_TRANSPORTE is None else rec.ID_TRANSPORTE,
             NOME_TRANSPORTE=await self.getNomeTransporte(rec.ID_TRANSPORTE),
@@ -1186,11 +1192,14 @@ class pedido:
             else 0.00,
             VALOR_ADICIONAL=float(rec.ADICIONAL) if rec.ADICIONAL is not None else 0.00,
             VALOR_DESCONTO=float(rec.DESCONTO) if rec.DESCONTO is not None else 0.00,
+            TOTAL_PRODUTOS=float(rec.TOTAL_PRODUTOS) if rec.TOTAL_PRODUTOS is not None else 0.00,
+            VALOR_TOTAL=float(rec.TOTAL_PEDIDO) if rec.TOTAL_PEDIDO is not None else 0.00,
+            VALOR_TROCO =float(rec.TROCO) if rec.TROCO is not None else 0.00,
             INFO_ADICIONAL=rec.INFO_ADICIONAL,
             ID_CAIXA=rec.ID_CAIXA,
             ITEMS=itemsPedido,
             PAGAMENTOS=pagamentos,
-            ID_ENDERECO=rec.ID_ENDERECO,
+            ID_ENDERECO=rec.ID_ENDERECO
         )
 
         return retorno
@@ -1334,7 +1343,7 @@ class pedido:
             DESCONTO=record.DESCONTO,
             INFO_ADICIONAL=record.INFO_ADICIONAL,
             TOTAL_PEDIDO=totalPedido,
-            TROCO=troco,
+            TROCO=troco
         ).where(
             p.NUMERO_PEDIDO == record.NUMERO_PEDIDO
         )
@@ -2527,6 +2536,33 @@ class pedido:
             CIDADE = cliente.MUNICIPIO,
             UF = cliente.UF,
             EMAIL = cliente.EMAIL_CLIENTE
+        )
+
+        return retorno
+
+    async def getDadosEmitente(self) -> dadosEmitente:
+        e = ctx.mapEmpresa
+
+        query = ctx.session.query(
+            e.RAZAO_SOCIAL,
+            e.NOME_FANTASIA,
+            e.ENDERECO,
+            e.BAIRRO,
+            e.CIDADE,
+            e.UF,
+            e.TELEFONE
+        ).first()
+
+        retorno = dadosEmitente(
+            RAZAO_SOCIAL=query.RAZAO_SOCIAL,
+            NOME_FANTASIA=query.NOME_FANTASIA,
+            ENDERECO = ' '.join((
+                query.ENDERECO,
+                query.BAIRRO,
+                query.CIDADE,
+                query.UF
+            )),
+            TELEFONE = query.TELEFONE
         )
 
         return retorno

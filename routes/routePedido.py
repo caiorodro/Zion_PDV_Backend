@@ -1144,3 +1144,19 @@ async def getResumoFechamentoPorOrigem(filtro: filtroCAIXA):
         del ped
 
     return retorno
+
+@router.get('/getDadosEmitente')
+async def getDadosEmitente():
+    ped = pedido()
+
+    retorno = None
+
+    try:
+        retorno = await ped.getDadosEmitente()
+    except Exception as ex:
+        raise ex
+
+    finally:
+        del ped
+
+    return retorno

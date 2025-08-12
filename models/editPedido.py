@@ -22,13 +22,17 @@ class editPedidoPagamento(BaseModel):
 class editPedido(BaseModel):
     NUMERO_PEDIDO: int
     ID_CLIENTE: int
+    CPF: str
     NOME_CLIENTE: str
     ID_TRANSPORTE: int
     NOME_TRANSPORTE: str
     ORIGEM: str
+    TOTAL_PRODUTOS: float
     TAXA_ENTREGA: float
     VALOR_ADICIONAL: float
     VALOR_DESCONTO: float
+    VALOR_TOTAL: float
+    VALOR_TROCO: float
     INFO_ADICIONAL: str
     ID_CAIXA: int
     ITEMS: List[editItemPedido]
