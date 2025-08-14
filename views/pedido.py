@@ -1237,9 +1237,10 @@ class pedido:
 
         u = ctx.mapUSUARIO
 
-        qu = ctx.session.query(u).filter(
-            u.SENHA_USUARIO == record.SENHA
-        ).all()
+        qu = ctx.session.query(u).filter(*[
+            u.SENHA_USUARIO == record.SENHA,
+            u.TIPO_USUARIO == 1
+        ]).all()
 
         if len(qu) == 0:
             raise Exception('Senha incorreta para cancelar o pedido')
