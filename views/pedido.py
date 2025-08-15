@@ -1385,11 +1385,11 @@ class pedido:
 
         if recordFinanceiro is None:
             return
-            
+
         itemsPedido = ctx.session.query(ip).filter(
             ip.NUMERO_PEDIDO == record.NUMERO_PEDIDO
         ).all()
-            
+
         items = [
             produtoQtde(
                 DESCRICAO_PRODUTO=await self.getDescricaoProduto(item.ID_PRODUTO), 
@@ -1789,14 +1789,16 @@ class pedido:
         if len(autorizado) > 0:
             rec = autorizado[0]
 
+            dataAutorizacao = datetime.strftime(
+                    rec.DATA_AUTORIZACAO_NFCE, "%d/%m/%Y %H:%M"
+                ) if isinstance(rec.DATA_AUTORIZACAO_NFCE, datetime) else ''
+
             return NFCe_Processada(
                 NUMERO_PEDIDO=rec.NUMERO_PEDIDO,
                 NUMERO_NF=rec.NUMERO_NF,
                 PROTOCOLO_AUTORIZACAO=rec.PROTOCOLO_AUTORIZACAO,
-                DATA_AUTORIZACAO=datetime.strftime(
-                    rec.DATA_AUTORIZACAO_NFCE, "%d/%m/%Y %H:%M"
-                ),
-                MENSAGEM=rec.RESPOSTA_SEFAZ,
+                DATA_AUTORIZACAO=dataAutorizacao,
+                MENSAGEM=rec.RESPOSTA_SEFAZ
             )
 
         if len(recusada) > 0:
