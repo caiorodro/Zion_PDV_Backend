@@ -905,6 +905,21 @@ async def getDadosNFCe(filtro: filtroNumeroPedido):
 
     return retorno
 
+@router.get("/getNFCe")
+async def getNFCe(filtro: filtroNumeroPedido):
+    _cliente = pedido()
+
+    retorno = []
+
+    try:
+        retorno = await _cliente.getNFCe(filtro)
+    except Exception as ex:
+        raise ex
+
+    finally:
+        del _cliente
+
+    return retorno
 
 @router.post("/finalizaNFCe")
 async def finalizaNFCe(dados: NFe_Finalizada):
@@ -1153,6 +1168,25 @@ async def getDadosEmitente():
 
     try:
         retorno = await ped.getDadosEmitente()
+    except Exception as ex:
+        raise ex
+
+    finally:
+        del ped
+
+    return retorno
+
+@router.get('/getNomeCliente')
+async def getNomeCliente(filtro: filtroCliente):
+    ped = pedido()
+
+    retorno = None
+
+    try:
+        retorno = await ped.getNomeCliente(
+            int(filtro.FILTRO)
+        )
+
     except Exception as ex:
         raise ex
 

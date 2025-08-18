@@ -2388,6 +2388,325 @@ class pedido:
 
         return retorno
 
+    async def getNFCe(self, filtro: filtroNumeroPedido) -> List[dadosNFCe]:
+        p = ctx.mapPedido
+        ip = ctx.mapItemPedido
+        pg = ctx.mapPedidoPagamento
+        e = ctx.mapEmpresa
+        pnf = ctx.mapPedidoNFe
+        c = ctx.mapCliente
+        en = ctx.mapEnderecoCliente
+        pr = ctx.mapProduto
+        t = ctx.mapTransporte
+        m = ctx.mapMunicipio
+        tr = ctx.mapTributo
+
+        retorno = []
+
+        pedido = (
+            ctx.session.query(p).filter(p.NUMERO_PEDIDO == filtro.NUMERO_PEDIDO).first()
+        )
+
+        itemsPedido = (
+            ctx.session.query(ip).filter(ip.NUMERO_PEDIDO == filtro.NUMERO_PEDIDO).all()
+        )
+
+        p = (1, 10)
+
+        pedidoNFe = (
+            ctx.session.query(pnf)
+            .filter(pnf.NUMERO_PEDIDO == filtro.NUMERO_PEDIDO)
+            .all()
+        )
+
+        if len(pedidoNFe) == 0:
+            raise Exception("Pedido não existe")
+
+        ID_CLIENTE = pedido.ID_CLIENTE
+        ID_ENDERECO = pedido.ID_ENDERECO
+        ID_EMITENTE = pedidoNFe[0].ID_EMPRESA
+
+        dadosEmpresa = ctx.session.query(e).filter(e.ID_EMPRESA == ID_EMITENTE).first()
+
+        dadosCliente = ctx.session.query(c).filter(c.ID_CLIENTE == ID_CLIENTE).first()
+
+        dadosEndereco = (
+            ctx.session.query(en).filter(en.ID_ENDERECO == ID_ENDERECO).first()
+        )
+
+        if dadosEndereco.ENDERECO is None or len(dadosEndereco.ENDERECO.strip()) == 0:
+            dadosEndereco.ENDERECO = dadosEmpresa.ENDERECO
+            dadosEndereco.NUMERO_ENDERECO = ""
+            dadosEndereco.COMPLEMENTO_ENDERECO = ""
+            dadosEndereco.CEP = dadosEmpresa.CEP
+            dadosEndereco.BAIRRO = dadosEmpresa.BAIRRO
+            dadosEndereco.MUNICIPIO = dadosEmpresa.CIDADE
+            dadosEndereco.UF = dadosEmpresa.UF
+
+        formasPagamento = [
+            FORMAS_PAGTO_IMPRESSAO(
+                DESCRICAO=item.FORMA_PAGTO, VALOR=self.qBase.currency(item.VALOR_PAGO)
+            )
+            for item in ctx.session.query(pg)
+            .filter(pg.NUMERO_PEDIDO == filtro.NUMERO_PEDIDO)
+            .all()
+        ]
+
+        TOTAL_QTDE = sum([int(item.QTDE) for item in itemsPedido])
+        TOTAL_VALOR = float(pedido.TOTAL_PEDIDO) - float(pedido.DESCONTO)
+        TROCO = float(pedido.TROCO)
+        DESCONTO = float(pedido.DESCONTO)
+
+        if DESCONTO >= pedido.TOTAL_PEDIDO:
+            DESCONTO = 0.00
+
+        _nf = []
+
+        qAutorizada = [item for item in pedidoNFe]
+
+        if len(qAutorizada) > 0:
+            _nf.append(str(qAutorizada[0].NUMERO_NF))
+        else:
+            nNF = 0
+            semNumero = pedidoNFe[0].NUMERO_NF == 0
+
+            if pedidoNFe[0].GERAR_DANFE == 1:
+                if semNumero:
+                    nNF = dadosEmpresa.NUMERO_NF + 1
+                else:
+                    nNF = dadosEmpresa.NUMERO_NF
+            else:
+                if semNumero:
+                    nNF = dadosEmpresa.NUMERO_NFCE + 1
+                else:
+                    nNF = dadosEmpresa.NUMERO_NFCE
+
+            _nf.append(str(nNF))
+
+        _nf.append(dadosEmpresa.SERIE_NFCE)
+
+        if pedidoNFe[0].GERAR_DANFE == 1:
+            if dadosEmpresa.NUMERO_NF < int(_nf[0]):
+                dadosEmpresa.NUMERO_NF = int(_nf[0])
+        else:
+            if dadosEmpresa.NUMERO_NFCE < int(_nf[0]):
+                dadosEmpresa.NUMERO_NFCE = int(_nf[0])
+
+        items = sorted(itemsPedido, key=lambda e: e.NUMERO_ITEM)
+
+        for item in items:
+            produto = (
+                ctx.session.query(pr).filter(pr.ID_PRODUTO == item.ID_PRODUTO).first()
+            )
+
+            descricaoProduto = self.qBase.cleanSpecialChars(produto.DESCRICAO_PRODUTO)
+
+            _endereco = f"{dadosEndereco.ENDERECO.strip()}, {dadosEndereco.NUMERO_ENDERECO.strip()}"
+
+            if len(dadosEndereco.ENDERECO) == 0:
+                _endereco = dadosEmpresa.ENDERECO.strip()
+
+            _endereco = self.qBase.cleanSpecialChars(_endereco)
+
+            _bairro = self.qBase.cleanSpecialChars(dadosEndereco.BAIRRO)
+            _bairro = self.qBase.cleanSpecialChars(_bairro)
+            descricaoProduto = self.qBase.cleanSpecialChars(descricaoProduto)
+
+            if len(descricaoProduto) > 120:
+                descricaoProduto = descricaoProduto[0: 120]
+
+            _cidade = (
+                dadosEmpresa.CIDADE
+                if len(dadosEndereco.MUNICIPIO) == 0
+                else dadosEndereco.MUNICIPIO.strip()
+            )
+            _cidade = self.qBase.cleanSpecialChars(_cidade)
+
+            numeroEndereco = (
+                "SN"
+                if len(dadosEndereco.NUMERO_ENDERECO) > 0
+                else dadosEndereco.NUMERO_ENDERECO
+            )
+            cep = "00000000" if len(dadosEndereco.CEP) == 0 else dadosEndereco.CEP
+            uf = dadosEmpresa.UF
+            email_cliente = dadosCliente.EMAIL_CLIENTE
+
+            if ID_EMITENTE is None:
+                dadosEmpresa.ID_EMPRESA
+
+            idEmpresa = dadosEmpresa.ID_EMPRESA
+            cnpjEmitente = self.qBase.onlyNumbers(dadosEmpresa.CNPJ)
+            numeroNF = int(_nf[0])
+            serieNF = _nf[1]
+            serialProtocolo = dadosEmpresa.SERIAL_PROTOCOLO
+
+            _tr = (
+                ctx.session.query(t)
+                .filter(t.ID_TRANSPORTE == pedido.ID_TRANSPORTE)
+                .first()
+            )
+
+            if _tr is None:
+                _tr = ctx.session.query(t).first()
+
+            uf1 = dadosEmpresa.UF.upper()
+            mun1 = dadosEmpresa.CIDADE.upper()
+
+            qIbge = (
+                ctx.session.query(m)
+                .filter(*(m.SIGLA_UF == uf1, m.NOME_MUNICIPIO == mun1))
+                .all()
+            )
+
+            ibgeEmitente = qIbge[0]
+            ibgeDestinatario = ibgeEmitente
+
+            _NOME_CLIENTE = self.qBase.maxString(pedido.NOME_CLIENTE, 60)
+
+            if len(_NOME_CLIENTE.strip()) < 6:
+                _NOME_CLIENTE = _NOME_CLIENTE.rjust(6, "0")
+
+            _produto = (
+                ctx.session.query(pr).filter(pr.ID_PRODUTO == item.ID_PRODUTO).first()
+            )
+
+            _CODIGO_PRODUTO = await self.buscaCodigoProduto(_produto.ID_PRODUTO)
+
+            _CODIGO_IBGE_EMITENTE = dadosEmpresa.CODIGO_MUNICIPIO_IBGE
+
+            _CODIGO_IBGE_DESTINATARIO = "".join(
+                (
+                    str(ibgeDestinatario.ID_UF),
+                    str(ibgeDestinatario.ID_MUNICIPIO).rjust(5, "0"),
+                )
+            )
+
+            CPF = pedido.CPF
+
+            Tributo = (
+                ctx.session.query(tr).filter(tr.ID_TRIBUTO == item.ID_TRIBUTO).first()
+            )
+
+            qCFOP = (
+                ctx.session.query(ctx.mapCFOP)
+                .filter(ctx.mapCFOP.CFOP == Tributo.CFOP)
+                .all()
+            )
+
+            NATUREZA_OPERACAO = (
+                qCFOP[0].DESCRICAO_CFOP if len(qCFOP) > 0 else "VENDA DE MERCADORIA"
+            )
+
+            protocolo = await self.extraiProtocoloNF(pedidoNFe[0].XML_NOTA)
+
+            rec = dadosNFCe(
+                NUMERO_COMANDA=pedido.NUMERO_PEDIDO,
+                DATA_HORA=datetime.strftime(
+                    pedido.DATA_HORA + timedelta(hours=3), "%d/%m/%Y %H:%M"
+                ),
+                NOME_CLIENTE=_NOME_CLIENTE.strip(),
+                CPF=self.qBase.onlyNumbers(CPF) if len(CPF) > 0 else "ISENTO",
+                IE=""
+                if dadosCliente.IE is None
+                else self.qBase.onlyNumbers(dadosCliente.IE),
+                ENDERECO=_endereco,
+                BAIRRO=_bairro,
+                CIDADE=_cidade,
+                FORMA_PAGTO=formasPagamento,
+                NCM=Tributo.NCM,
+                CFOP=Tributo.CFOP,
+                ID_PRODUTO=int(item.ID_PRODUTO),
+                ID_TRIBUTO=int(item.ID_TRIBUTO),
+                NATUREZA_OPERACAO=NATUREZA_OPERACAO,
+                CODIGO_PRODUTO=_CODIGO_PRODUTO,
+                PRODUTO=descricaoProduto,
+                QTDE=int(item.QTDE),
+                PRECO=float(item.PRECO_UNITARIO),
+                TOTAL=int(item.QTDE) * float(item.PRECO_UNITARIO),
+                DESCONTO=DESCONTO,
+                TOTAL_QTDE=TOTAL_QTDE,
+                TOTAL_VALOR=TOTAL_VALOR,
+                TROCO=TROCO,
+                COMENTARIOS=pedido.INFO_ADICIONAL
+                if pedido.INFO_ADICIONAL is not None
+                else "",
+                TELEFONE=pedido.TELEFONE_CLIENTE
+                if pedido.TELEFONE_CLIENTE is not None
+                else "",
+                ID_EMPRESA=idEmpresa,
+                NUMERO_NF=numeroNF,
+                SERIE_NF=serieNF,
+                CNPJ_EMITENTE=cnpjEmitente,
+                SERIAL_PROTOCOLO=serialProtocolo,
+                PROTOCOLO=protocolo,
+                NOME_EMITENTE=dadosEmpresa.RAZAO_SOCIAL,
+                NOME_FANTASIA_EMITENTE=dadosEmpresa.NOME_FANTASIA,
+                IE_EMITENTE=dadosEmpresa.IE,
+                ENDERECO_EMITENTE=dadosEmpresa.ENDERECO.strip(),
+                BAIRRO_EMITENTE=dadosEmpresa.BAIRRO.strip(),
+                CEP_EMITENTE=dadosEmpresa.CEP,
+                CIDADE_EMITENTE=dadosEmpresa.CIDADE.strip(),
+                UF_EMITENTE=dadosEmpresa.UF,
+                CRT_EMITENTE=dadosEmpresa.CRT,
+                TELEFONE_EMITENTE=dadosEmpresa.TELEFONE.strip(),
+                NUMERO_ENDERECO="SN" if len(numeroEndereco) == 0 else numeroEndereco,
+                CEP=cep,
+                UF=uf,
+                ENDERECO_TRANSPORTE=self.qBase.cleanSpecialChars(_tr.ENDERECO),
+                EMAIL_CLIENTE=email_cliente,
+                UF_TRANSPORTE=_tr.UF,
+                IE_TRANSPORTE=self.qBase.onlyNumbers(_tr.IE),
+                CNPJ_TRANSPORTE=self.qBase.onlyNumbers(_tr.CNPJ),
+                CIDADE_TRANSPORTE=self.qBase.cleanSpecialChars(_tr.CIDADE),
+                NOME_FANTASIA_TRANSPORTE=self.qBase.cleanSpecialChars(
+                    _tr.NOME_TRANSPORTE
+                ),
+                NOME_TRANSPORTE=self.qBase.cleanSpecialChars(_tr.NOME_TRANSPORTE),
+                XML=pedidoNFe[0].XML_NOTA,
+                CHAVE=pedidoNFe[0].CHAVE_ACESSO_NF
+                if pedidoNFe[0].CHAVE_ACESSO_NF is not None
+                else "",
+                CODIGO_IBGE_EMITENTE=_CODIGO_IBGE_EMITENTE,
+                CODIGO_IBGE_DESTINATARIO=_CODIGO_IBGE_DESTINATARIO,
+                DATA_AUTORIZACAO_NFCE=pedidoNFe[0].DATA_AUTORIZACAO_NFCE,
+                ASSINATURA_NFCE=pedidoNFe[0].ASSINATURA_NFCE,
+                CST=Tributo.CST,
+                ALIQ_ICMS=Tributo.ALIQ_ICMS,
+                ALIQ_INTERNA_ICMS=Tributo.ALIQ_INTERNA_ICMS,
+                MODO_BASE_CALCULO_ICMS_ST=Tributo.MODO_BASE_CALCULO_ICMS_ST,
+                IVA=Tributo.IVA,
+                CST_IPI=Tributo.CST_IPI,
+                ALIQ_IPI=Tributo.ALIQ_IPI,
+                CST_PIS=Tributo.CST_PIS,
+                ALIQ_PIS=Tributo.ALIQ_PIS,
+                CST_COFINS=Tributo.CST_COFINS,
+                ALIQ_COFINS=Tributo.ALIQ_COFINS,
+                CEST="" if Tributo.CEST is None else Tributo.CEST,
+                FATURAR_TAXA_ENTREGA=int(dadosEmpresa.FATURAR_TAXA_ENTREGA),
+                pFCP=0.00
+                if Tributo.PERCENTUAL_FCP is None
+                else float(Tributo.PERCENTUAL_FCP),
+                GERAR_DANFE=0
+                if pedidoNFe[0].GERAR_DANFE is None
+                else int(pedidoNFe[0].GERAR_DANFE),
+                DADOS_ADICIONAIS=pedido.INFO_ADICIONAL
+                if pedido.INFO_ADICIONAL is not None
+                else "",
+                DEVOLUCAO=False,
+                CHAVE_NF_DEVOLUCAO="",
+                TAXA_ENTREGA=0.00 if int(dadosEmpresa.FATURAR_TAXA_ENTREGA) == 0 else float(pedido.TAXA_ENTREGA),
+                vBCSTRet=0.00,
+                vICMSRet=0.00,
+                pST=Tributo.ALIQ_ICMS,
+                ID_TRANSPORTE=int(pedido.ID_TRANSPORTE)
+                if pedido.ID_TRANSPORTE is not None
+                else _tr.ID_TRANSPORTE
+            )
+
+            retorno.append(rec)
+
+        return retorno
+
     async def extraiProtocoloNF(self, XML: str) -> str:
         try:
             prot = "<nProt>"

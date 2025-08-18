@@ -4,7 +4,6 @@ from pydantic import BaseModel
 
 from models.FORMAS_PAGTO_IMPRESSAO import FORMAS_PAGTO_IMPRESSAO
 
-
 class dadosNFCe(BaseModel):
     NUMERO_COMANDA: int
     CPF: str
