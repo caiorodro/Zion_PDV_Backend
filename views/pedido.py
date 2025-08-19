@@ -21,6 +21,7 @@ from models.filtroCancelamento import filtroCancelamento
 from models.filtroIDPagamento import filtroIDPagamento
 from models.filtroImpressaoPedido import filtroImpressaoPedido
 from models.filtroListaPedido import filtroListaPedido
+from models.filtroNFCe import filtroNFCe
 from models.filtroNumeroPedido import filtroNumeroPedido
 from models.filtroPedido import filtroPedido
 from models.FORMAS_PAGTO_IMPRESSAO import FORMAS_PAGTO_IMPRESSAO
@@ -2388,7 +2389,7 @@ class pedido:
 
         return retorno
 
-    async def getNFCe(self, filtro: filtroNumeroPedido) -> List[dadosNFCe]:
+    async def getNFCe(self, filtro: filtroNFCe) -> List[dadosNFCe]:
         p = ctx.mapPedido
         ip = ctx.mapItemPedido
         pg = ctx.mapPedidoPagamento
@@ -2411,22 +2412,11 @@ class pedido:
             ctx.session.query(ip).filter(ip.NUMERO_PEDIDO == filtro.NUMERO_PEDIDO).all()
         )
 
-        p = (1, 10)
-
-        pedidoNFe = (
-            ctx.session.query(pnf)
-            .filter(pnf.NUMERO_PEDIDO == filtro.NUMERO_PEDIDO)
-            .all()
-        )
-
-        if len(pedidoNFe) == 0:
-            raise Exception("Pedido não existe")
+        dadosEmpresa = ctx.session.query(e).first()
 
         ID_CLIENTE = pedido.ID_CLIENTE
         ID_ENDERECO = pedido.ID_ENDERECO
-        ID_EMITENTE = pedidoNFe[0].ID_EMPRESA
-
-        dadosEmpresa = ctx.session.query(e).filter(e.ID_EMPRESA == ID_EMITENTE).first()
+        ID_EMITENTE = dadosEmpresa.ID_EMPRESA
 
         dadosCliente = ctx.session.query(c).filter(c.ID_CLIENTE == ID_CLIENTE).first()
 
@@ -2460,37 +2450,17 @@ class pedido:
         if DESCONTO >= pedido.TOTAL_PEDIDO:
             DESCONTO = 0.00
 
-        _nf = []
+        pedidoNFe = ctx.session.query(
+            pnf.NUMERO_NF
+        ).order_by(
+            desc(pnf.NUMERO_NF)
+        ).filter(
+             pnf.SERIE_NF == filtro.SERIE_NF
+        ).limit(1).all()
+        
+        maxNF = int(pedidoNFe[0][0]) if any(pedidoNFe) else 0
 
-        qAutorizada = [item for item in pedidoNFe]
-
-        if len(qAutorizada) > 0:
-            _nf.append(str(qAutorizada[0].NUMERO_NF))
-        else:
-            nNF = 0
-            semNumero = pedidoNFe[0].NUMERO_NF == 0
-
-            if pedidoNFe[0].GERAR_DANFE == 1:
-                if semNumero:
-                    nNF = dadosEmpresa.NUMERO_NF + 1
-                else:
-                    nNF = dadosEmpresa.NUMERO_NF
-            else:
-                if semNumero:
-                    nNF = dadosEmpresa.NUMERO_NFCE + 1
-                else:
-                    nNF = dadosEmpresa.NUMERO_NFCE
-
-            _nf.append(str(nNF))
-
-        _nf.append(dadosEmpresa.SERIE_NFCE)
-
-        if pedidoNFe[0].GERAR_DANFE == 1:
-            if dadosEmpresa.NUMERO_NF < int(_nf[0]):
-                dadosEmpresa.NUMERO_NF = int(_nf[0])
-        else:
-            if dadosEmpresa.NUMERO_NFCE < int(_nf[0]):
-                dadosEmpresa.NUMERO_NFCE = int(_nf[0])
+        maxNF += 1
 
         items = sorted(itemsPedido, key=lambda e: e.NUMERO_ITEM)
 
@@ -2536,8 +2506,6 @@ class pedido:
 
             idEmpresa = dadosEmpresa.ID_EMPRESA
             cnpjEmitente = self.qBase.onlyNumbers(dadosEmpresa.CNPJ)
-            numeroNF = int(_nf[0])
-            serieNF = _nf[1]
             serialProtocolo = dadosEmpresa.SERIAL_PROTOCOLO
 
             _tr = (
@@ -2597,7 +2565,7 @@ class pedido:
                 qCFOP[0].DESCRICAO_CFOP if len(qCFOP) > 0 else "VENDA DE MERCADORIA"
             )
 
-            protocolo = await self.extraiProtocoloNF(pedidoNFe[0].XML_NOTA)
+            protocolo = ''
 
             rec = dadosNFCe(
                 NUMERO_COMANDA=pedido.NUMERO_PEDIDO,
@@ -2634,8 +2602,8 @@ class pedido:
                 if pedido.TELEFONE_CLIENTE is not None
                 else "",
                 ID_EMPRESA=idEmpresa,
-                NUMERO_NF=numeroNF,
-                SERIE_NF=serieNF,
+                NUMERO_NF=maxNF,
+                SERIE_NF=str(filtro.SERIE_NF),
                 CNPJ_EMITENTE=cnpjEmitente,
                 SERIAL_PROTOCOLO=serialProtocolo,
                 PROTOCOLO=protocolo,
@@ -2662,14 +2630,12 @@ class pedido:
                     _tr.NOME_TRANSPORTE
                 ),
                 NOME_TRANSPORTE=self.qBase.cleanSpecialChars(_tr.NOME_TRANSPORTE),
-                XML=pedidoNFe[0].XML_NOTA,
-                CHAVE=pedidoNFe[0].CHAVE_ACESSO_NF
-                if pedidoNFe[0].CHAVE_ACESSO_NF is not None
-                else "",
+                XML='',
+                CHAVE='',
                 CODIGO_IBGE_EMITENTE=_CODIGO_IBGE_EMITENTE,
                 CODIGO_IBGE_DESTINATARIO=_CODIGO_IBGE_DESTINATARIO,
-                DATA_AUTORIZACAO_NFCE=pedidoNFe[0].DATA_AUTORIZACAO_NFCE,
-                ASSINATURA_NFCE=pedidoNFe[0].ASSINATURA_NFCE,
+                DATA_AUTORIZACAO_NFCE='',
+                ASSINATURA_NFCE='',
                 CST=Tributo.CST,
                 ALIQ_ICMS=Tributo.ALIQ_ICMS,
                 ALIQ_INTERNA_ICMS=Tributo.ALIQ_INTERNA_ICMS,
@@ -2686,9 +2652,7 @@ class pedido:
                 pFCP=0.00
                 if Tributo.PERCENTUAL_FCP is None
                 else float(Tributo.PERCENTUAL_FCP),
-                GERAR_DANFE=0
-                if pedidoNFe[0].GERAR_DANFE is None
-                else int(pedidoNFe[0].GERAR_DANFE),
+                GERAR_DANFE=0,
                 DADOS_ADICIONAIS=pedido.INFO_ADICIONAL
                 if pedido.INFO_ADICIONAL is not None
                 else "",

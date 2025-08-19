@@ -26,6 +26,7 @@ from models.filtroImpressaoCaixa import filtroImpressaoCaixa
 from models.filtroImpressaoPedido import filtroImpressaoPedido
 from models.filtroListaPedido import filtroListaPedido
 from models.filtroListaProduto import filtroListaProduto
+from models.filtroNFCe import filtroNFCe
 from models.filtroNumeroPedido import filtroNumeroPedido
 from models.filtroPedido import filtroPedido
 from models.filtroReforco import filtroReforco
@@ -906,7 +907,7 @@ async def getDadosNFCe(filtro: filtroNumeroPedido):
     return retorno
 
 @router.get("/getNFCe")
-async def getNFCe(filtro: filtroNumeroPedido):
+async def getNFCe(filtro: filtroNFCe):
     _cliente = pedido()
 
     retorno = []
