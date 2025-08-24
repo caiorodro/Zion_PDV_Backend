@@ -11,3 +11,4 @@ class listaDePedido(BaseModel):
     PAGAMENTOS: str
     ENDERECO: str
     TELEFONE: str
+    NF: bool

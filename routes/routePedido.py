@@ -39,6 +39,7 @@ from models.itemPedido import itemPedido
 from models.itemTributo import itemTributo
 from models.listaDePagamentos import listaDePagamentos
 from models.NFe_Finalizada import NFe_Finalizada
+from models.notaAutorizada import notaAutorizada
 from models.nsu import nsu
 from models.numeroItemPedido import numeroItemPedido
 from models.Order import Order
@@ -1195,3 +1196,15 @@ async def getNomeCliente(filtro: filtroCliente):
         del ped
 
     return retorno
+
+@router.post('/finalizaNFCe_V2')
+async def finalizaNFCe_V2(nota: notaAutorizada):
+    ped = pedido()
+
+    try:
+        await ped.finalizaNFCe_V2(nota)
+    except Exception as ex:
+        raise ex
+
+    finally:
+        del ped

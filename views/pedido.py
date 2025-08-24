@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 from typing import List
 
 from dateutil.relativedelta import relativedelta
-from sqlalchemy import desc
+from sqlalchemy import desc, select, func
 
 import base.qModel as ctx
 from base.qBase import qBase
@@ -38,6 +38,7 @@ from models.listaDePagamentos import listaDePagamentos
 from models.listaFormaPagto import listaFormaPagto
 from models.NFCe_Processada import NFCe_Processada
 from models.NFe_Finalizada import NFe_Finalizada
+from models.notaAutorizada import notaAutorizada
 from models.numeroItemPedido import numeroItemPedido
 from models.numeroPedido import NUM_PEDIDO
 from models.Order import Order
@@ -836,11 +837,34 @@ class pedido:
         return retorno
 
     async def get_Pagamentos(self, NUMERO_PEDIDO: int, query: any) -> str:
+        lista = [
+            FORMAS_PAGTO_IMPRESSAO(
+                DESCRICAO = item.FORMA_PAGTO,
+                VALOR = self.qBase.currency(item.VALOR_PAGO)
+            )
+            for item in query
+            if item.NUMERO_PEDIDO == NUMERO_PEDIDO
+        ]
+
+        lista1 = []
+
+        for item in lista:
+            list(
+                filter(
+                    lambda e: e.DESCRICAO ==  item.DESCRICAO
+                    and e.VALOR == item.VALOR,
+                    lista1
+                )
+            )
+
+
+            if not any(lista1):
+                lista1.append(item)
+
         retorno = "\n".join(
             [
-                f"{item.FORMA_PAGTO}: {self.qBase.currency(item.VALOR_PAGO)}"
-                for item in query
-                if item.NUMERO_PEDIDO == NUMERO_PEDIDO
+                f"{item.DESCRICAO}: {item.VALOR}"
+                for item in lista1
             ]
         )
 
@@ -896,6 +920,8 @@ class pedido:
             pg.NUMERO_PEDIDO == p.NUMERO_PEDIDO,
         ]
 
+        nota = self.getSubQueryHasNF()
+
         query = (
             ctx.session.query(
                 pg.NUMERO_PEDIDO,
@@ -912,6 +938,7 @@ class pedido:
                 p.TELEFONE_CLIENTE,
                 pg.FORMA_PAGTO,
                 pg.VALOR_PAGO,
+                nota.c.hasNF
             )
             .filter(*filters)
             .all()
@@ -932,6 +959,8 @@ class pedido:
             p.ID_TRANSPORTE == t.ID_TRANSPORTE,
             pg.NUMERO_PEDIDO == p.NUMERO_PEDIDO,
         ]
+
+        nota = self.getSubQueryHasNF()
 
         query = (
             ctx.session.query()
@@ -958,6 +987,7 @@ class pedido:
                 p.TELEFONE_CLIENTE,
                 pg.FORMA_PAGTO,
                 pg.VALOR_PAGO,
+                nota.c.hasNF
             )
             .filter(*filters)
             .all()
@@ -979,6 +1009,8 @@ class pedido:
             pg.NUMERO_PEDIDO == p.NUMERO_PEDIDO,
         ]
 
+        nota = self.getSubQueryHasNF()
+
         query = (
             ctx.session.query(
                 pg.NUMERO_PEDIDO,
@@ -995,6 +1027,7 @@ class pedido:
                 p.TELEFONE_CLIENTE,
                 pg.FORMA_PAGTO,
                 pg.VALOR_PAGO,
+                nota.c.hasNF
             )
             .filter(*filters)
             .all()
@@ -1003,6 +1036,20 @@ class pedido:
         retorno = await self.retornoQueryPedidos(query)
 
         return retorno
+
+    def getSubQueryHasNF(self) -> any:
+        pnf = ctx.mapPedidoNFe
+
+        subQuery = (
+            ctx.session.query(
+                pnf.NUMERO_PEDIDO,
+                func.count(pnf.NUMERO_PEDIDO).label("hasNF")
+            )
+            .group_by(pnf.NUMERO_PEDIDO)
+            .subquery()
+        )
+
+        return subQuery
 
     async def getByDataHora(self, filtro: filtroListaPedido) -> List[listaDePedido]:
         p = ctx.mapPedido
@@ -1027,6 +1074,8 @@ class pedido:
             (p.ID_TRANSPORTE == t.ID_TRANSPORTE, pg.NUMERO_PEDIDO == p.NUMERO_PEDIDO)
         )
 
+        nota = self.getSubQueryHasNF()
+
         query = (
             ctx.session.query(
                 pg.NUMERO_PEDIDO,
@@ -1043,7 +1092,9 @@ class pedido:
                 p.TELEFONE_CLIENTE,
                 pg.FORMA_PAGTO,
                 pg.VALOR_PAGO,
+                nota.c.hasNF
             )
+            .outerjoin(nota, p.NUMERO_PEDIDO == nota.c.NUMERO_PEDIDO)
             .order_by(desc(pg.DATA_HORA))
             .filter(*filters)
             .offset(filtro.START)
@@ -1093,6 +1144,7 @@ class pedido:
                     TELEFONE=empresa.TELEFONE
                     if len(item.TELEFONE_CLIENTE) == 0
                     else item.TELEFONE_CLIENTE,
+                    NF= isinstance(item.hasNF, int)
                 )
             )
 
@@ -1669,7 +1721,7 @@ class pedido:
         cmd = ctx.tb_pedido_pagamento.insert().values(
             ID_PAGAMENTO=0,
             NUMERO_PEDIDO=dados.NUMERO_PEDIDO,
-            DATA_HORA=datetime.now(),
+            DATA_HORA=pedido.DATA_HORA,
             FORMA_PAGTO=dados.DESCRICAO_FORMA,
             VALOR_PAGO=dados.VALOR_PAGO,
             ID_CAIXA=pedido.ID_CAIXA,
@@ -2394,7 +2446,6 @@ class pedido:
         ip = ctx.mapItemPedido
         pg = ctx.mapPedidoPagamento
         e = ctx.mapEmpresa
-        pnf = ctx.mapPedidoNFe
         c = ctx.mapCliente
         en = ctx.mapEnderecoCliente
         pr = ctx.mapProduto
@@ -2433,6 +2484,16 @@ class pedido:
             dadosEndereco.MUNICIPIO = dadosEmpresa.CIDADE
             dadosEndereco.UF = dadosEmpresa.UF
 
+        logradouroEmitente = dadosEmpresa.ENDERECO.split(',')
+        numeroEnderecoEmitente = 'SN'
+        enderecoEmitente = logradouroEmitente[0].strip()
+
+        if len(logradouroEmitente) > 1:
+            numeroEnderecoEmitente = self.qBase.onlyNumbers(logradouroEmitente[1]).strip()
+
+        if len(numeroEnderecoEmitente) == 0:
+            numeroEnderecoEmitente = 'SN'
+
         formasPagamento = [
             FORMAS_PAGTO_IMPRESSAO(
                 DESCRICAO=item.FORMA_PAGTO, VALOR=self.qBase.currency(item.VALOR_PAGO)
@@ -2450,17 +2511,13 @@ class pedido:
         if DESCONTO >= pedido.TOTAL_PEDIDO:
             DESCONTO = 0.00
 
-        pedidoNFe = ctx.session.query(
-            pnf.NUMERO_NF
-        ).order_by(
-            desc(pnf.NUMERO_NF)
-        ).filter(
-             pnf.SERIE_NF == filtro.SERIE_NF
-        ).limit(1).all()
-        
-        maxNF = int(pedidoNFe[0][0]) if any(pedidoNFe) else 0
+        maxNF = dadosEmpresa.NUMERO_NFCE
+
+        if maxNF is None:
+            maxNF = 0
 
         maxNF += 1
+        maxNF = int(maxNF) 
 
         items = sorted(itemsPedido, key=lambda e: e.NUMERO_ITEM)
 
@@ -2492,11 +2549,6 @@ class pedido:
             )
             _cidade = self.qBase.cleanSpecialChars(_cidade)
 
-            numeroEndereco = (
-                "SN"
-                if len(dadosEndereco.NUMERO_ENDERECO) > 0
-                else dadosEndereco.NUMERO_ENDERECO
-            )
             cep = "00000000" if len(dadosEndereco.CEP) == 0 else dadosEndereco.CEP
             uf = dadosEmpresa.UF
             email_cliente = dadosCliente.EMAIL_CLIENTE
@@ -2570,7 +2622,7 @@ class pedido:
             rec = dadosNFCe(
                 NUMERO_COMANDA=pedido.NUMERO_PEDIDO,
                 DATA_HORA=datetime.strftime(
-                    pedido.DATA_HORA + timedelta(hours=3), "%d/%m/%Y %H:%M"
+                    datetime.now(), "%d/%m/%Y %H:%M"
                 ),
                 NOME_CLIENTE=_NOME_CLIENTE.strip(),
                 CPF=self.qBase.onlyNumbers(CPF) if len(CPF) > 0 else "ISENTO",
@@ -2610,14 +2662,14 @@ class pedido:
                 NOME_EMITENTE=dadosEmpresa.RAZAO_SOCIAL,
                 NOME_FANTASIA_EMITENTE=dadosEmpresa.NOME_FANTASIA,
                 IE_EMITENTE=dadosEmpresa.IE,
-                ENDERECO_EMITENTE=dadosEmpresa.ENDERECO.strip(),
+                ENDERECO_EMITENTE=enderecoEmitente,
                 BAIRRO_EMITENTE=dadosEmpresa.BAIRRO.strip(),
-                CEP_EMITENTE=dadosEmpresa.CEP,
+                CEP_EMITENTE=self.qBase.onlyNumbers(dadosEmpresa.CEP),
                 CIDADE_EMITENTE=dadosEmpresa.CIDADE.strip(),
                 UF_EMITENTE=dadosEmpresa.UF,
                 CRT_EMITENTE=dadosEmpresa.CRT,
                 TELEFONE_EMITENTE=dadosEmpresa.TELEFONE.strip(),
-                NUMERO_ENDERECO="SN" if len(numeroEndereco) == 0 else numeroEndereco,
+                NUMERO_ENDERECO=numeroEnderecoEmitente,
                 CEP=cep,
                 UF=uf,
                 ENDERECO_TRANSPORTE=self.qBase.cleanSpecialChars(_tr.ENDERECO),
@@ -2852,6 +2904,37 @@ class pedido:
         )
 
         return retorno
+
+    async def finalizaNFCe_V2(self, nota: notaAutorizada):
+        cmd = ctx.tb_pedido_nfe.insert().values(
+            ID_PEDIDO_NFE=0,
+            NUMERO_PEDIDO=nota.NUMERO_PEDIDO,
+            XML_NOTA=nota.XML_AUTORIZADO,
+            RESPOSTA_SEFAZ="",
+            NUMERO_NF=nota.NUMERO_NF,
+            SERIE_NF=nota.SERIE_NF,
+            CHAVE_ACESSO_NF=nota.CHAVE_ACESSO,
+            PROTOCOLO_AUTORIZACAO="",
+            PROCESSADO=10,
+            ASSINATURA_NFCE="",
+            DATA_AUTORIZACAO_NFCE="",
+            CHAVE_PEDIDO="",
+            XML_DEVOLUCAO="",
+            NUMERO_NF_DEVOLUCAO=0,
+            GERAR_DANFE=0,
+            ID_EMPRESA=1,
+            CHAVE_NF_DEVOLUCAO="",
+            ID_PEDIDO_NFE_LOCAL=0,
+            ID_TERMINAL=0
+        )
+        ctx.session.execute(cmd)
+
+        cmd1 = ctx.tb_empresa.update().values(
+            NUMERO_NFCE = nota.NUMERO_NF
+        )
+
+        ctx.session.execute(cmd1)
+        ctx.session.commit()
 
     def __del__(self):
         ctx.session.close_all()
