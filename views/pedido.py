@@ -1,4 +1,3 @@
-import asyncio
 from datetime import datetime, timedelta
 from typing import List
 
@@ -108,10 +107,18 @@ class pedido:
         numeroPedido = await self.gravaPedido(order)
 
         return self.qBase.toRoute(
-            NUM_PEDIDO(NUMERO_PEDIDO=numeroPedido).model_dump_json(), 200
+            NUM_PEDIDO(NUMERO_PEDIDO=numeroPedido).__dict__, 200
         )
 
     async def gravaPedido(self, order: Order) -> dict:
+        cliente = self.getClientePedido(order.pedido.ID_CLIENTE, order.pedido.ID_ENDERECO)
+
+        if 'consumidor final' not in cliente.NOME_CLIENTE.lower():
+            order.pedido.ORIGEM = 'Delivery próprio'
+            
+            for item in order.pagamento:
+                item.ORIGEM = 'Delivery próprio'
+
         numeroPedido = self.insereNovoPedido(order.pedido)
 
         assert isinstance(numeroPedido, int)
@@ -153,10 +160,8 @@ class pedido:
         return numeroPedido
 
     def insereNovoPedido(self, pedido: pedido) -> int:
-        cliente =self.getClientePedido(pedido.ID_CLIENTE, pedido.ID_ENDERECO)
 
-        if 'consumidor final' not in cliente.NOME_CLIENTE.lower():
-            pedido.ORIGEM = 'Delivery próprio'
+        cliente = self.getClientePedido(pedido.ID_CLIENTE, pedido.ID_ENDERECO)
 
         cmd = ctx.tb_pedido.insert().values(
             NUMERO_PEDIDO=0,
@@ -754,7 +759,7 @@ class pedido:
         lista = [
             listaFormaPagto(
                 ID_FORMA=row.ID_FORMA, DESCRICAO_FORMA=row.DESCRICAO_FORMA
-            ).model_dump_json()
+            ).__dict__
             for row in select1
         ]
 
@@ -828,7 +833,7 @@ class pedido:
                 TOTAL=row.VALOR_TOTAL,
                 ID_TRIBUTO=row.ID_TRIBUTO,
                 QTDE_FRACIONADA=await self.qBase.isFamiliaBalanca(row.ID_FAMILIA) if isinstance(row.ID_FAMILIA, int) else False
-            ).model_dump_json()
+            ).__dict__
             for row in select1
         ]
 
@@ -2452,6 +2457,7 @@ class pedido:
         t = ctx.mapTransporte
         m = ctx.mapMunicipio
         tr = ctx.mapTributo
+        pnf = ctx.mapPedidoNFe
 
         retorno = []
 
@@ -2462,6 +2468,17 @@ class pedido:
         itemsPedido = (
             ctx.session.query(ip).filter(ip.NUMERO_PEDIDO == filtro.NUMERO_PEDIDO).all()
         )
+
+        pedidoNFe = ctx.session.query(
+            pnf.XML_NOTA,
+            pnf.CHAVE_ACESSO_NF,
+            pnf.PROTOCOLO_AUTORIZACAO
+        ).filter(*
+            [
+                pnf.NUMERO_PEDIDO == filtro.NUMERO_PEDIDO,
+                pnf.PROCESSADO == 10
+            ]
+        ).all()
 
         dadosEmpresa = ctx.session.query(e).first()
 
@@ -2617,7 +2634,9 @@ class pedido:
                 qCFOP[0].DESCRICAO_CFOP if len(qCFOP) > 0 else "VENDA DE MERCADORIA"
             )
 
-            protocolo = ''
+            recNF = pedidoNFe[0] if any(pedidoNFe) else None
+
+            protocolo = recNF.PROTOCOLO_AUTORIZACAO if recNF is not None else ''
 
             rec = dadosNFCe(
                 NUMERO_COMANDA=pedido.NUMERO_PEDIDO,
@@ -2682,8 +2701,8 @@ class pedido:
                     _tr.NOME_TRANSPORTE
                 ),
                 NOME_TRANSPORTE=self.qBase.cleanSpecialChars(_tr.NOME_TRANSPORTE),
-                XML='',
-                CHAVE='',
+                XML=recNF.XML_NOTA if recNF is not None else '',
+                CHAVE=recNF.CHAVE_ACESSO_NF if recNF is not None else '',
                 CODIGO_IBGE_EMITENTE=_CODIGO_IBGE_EMITENTE,
                 CODIGO_IBGE_DESTINATARIO=_CODIGO_IBGE_DESTINATARIO,
                 DATA_AUTORIZACAO_NFCE='',
@@ -2914,7 +2933,7 @@ class pedido:
             NUMERO_NF=nota.NUMERO_NF,
             SERIE_NF=nota.SERIE_NF,
             CHAVE_ACESSO_NF=nota.CHAVE_ACESSO,
-            PROTOCOLO_AUTORIZACAO="",
+            PROTOCOLO_AUTORIZACAO=nota.PROTOCOLO_AUTORIZACAO,
             PROCESSADO=10,
             ASSINATURA_NFCE="",
             DATA_AUTORIZACAO_NFCE="",

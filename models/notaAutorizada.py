@@ -6,4 +6,5 @@ class notaAutorizada:
     NUMERO_PEDIDO: int
     SERIE_NF: int
     CHAVE_ACESSO: str
+    PROTOCOLO_AUTORIZACAO: str
     XML_AUTORIZADO: str

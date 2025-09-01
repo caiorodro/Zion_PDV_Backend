@@ -51,7 +51,7 @@ class produto:
                 if isinstance(row.PRECO_BALCAO, Decimal)
                 else 0,
                 ID_TRIBUTO=row.ID_TRIBUTO,
-            ).model_dump_json()
+            ).__dict__
             for row in select1.all()
         ]
 
@@ -82,7 +82,7 @@ class produto:
                     getProduto(ID_PRODUTO=row.ID_PRODUTO, QTDE=filtro.QTDE)
                 ),
                 ID_TRIBUTO=row.ID_TRIBUTO,
-            ).model_dump_json()
+            ).__dict__
             for row in select1
         ]
 
@@ -129,7 +129,7 @@ class produto:
         precoBalcao = await self.getPrecoAtacado(filtro)
 
         return self.qBase.toRoute(
-            precoAtacado(PRECO=precoBalcao).model_dump_json(), 200
+            precoAtacado(PRECO=precoBalcao).__dict__, 200
         )
 
     async def getItemBalanca(self, filtro: filtroCodigoProduto) -> produtoBalanca | None:

@@ -36,7 +36,7 @@ class Reforco:
                 ID_REFORCO_LOCAL=0,
                 ID_TERMINAL=0,
                 ID_ABERTURA=item.ID_ABERTURA,
-            ).model_dump_json()
+            ).__dict__
             for item in sorted(query, key=lambda e: e.DATA_REFORCO, reverse=True)
         ]
 

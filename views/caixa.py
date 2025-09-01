@@ -78,7 +78,7 @@ class Caixa:
                 USUARIO=await self.getUsuario(item.ID_USUARIO),
                 DATA_FECHAMENTO=await self.buscaFechamento(item.ID_ABERTURA),
                 ADMINISTRADOR=await self.getAdmin(item.ID_USUARIO)
-            ).model_dump_json()
+            ).__dict__
             for item in query
         ]
 
@@ -174,7 +174,7 @@ class Caixa:
         retorno = [
             listaDeUsuario(
                 ID_USUARIO=item.ID_USUARIO, NOME_USUARIO=item.NOME_USUARIO
-            ).model_dump_json()
+            ).__dict__
             for item in query
         ]
 
@@ -239,7 +239,7 @@ class Caixa:
         lista = await self.calcula_Formas_de_Pagto_no_Caixa(filtro)
 
         retorno = [
-            formaPagtoCaixa(DESCRICAO_FORMA=item.DESCRICAO_FORMA).model_dump_json()
+            formaPagtoCaixa(DESCRICAO_FORMA=item.DESCRICAO_FORMA).__dict__
             for item in lista
         ]
 
@@ -397,7 +397,7 @@ class Caixa:
         
         retorno = await self.calcula_Totais_Por_Forma_Pagto(filtro)
 
-        return self.qBase.toRoute(retorno.model_dump_json(), 200)
+        return self.qBase.toRoute(retorno.__dict__, 200)
 
     async def verificaCaixaAberto(self, filtro: filtroFormasPagtoCaixa) -> bool:
         a = ctx.mapAberturaCaixa
