@@ -2446,6 +2446,28 @@ class pedido:
 
         return retorno
 
+    async def getNumeroNFCe(self, SERIE_NF: str) -> int:
+        nnf = ctx.mapNUMERO_NOTA
+
+        query = ctx.session.query(nnf).filter(
+            nnf.SERIE_NF == SERIE_NF
+        ).all()
+
+        if not any(query):
+            cmd = ctx.tb_numero_nota.insert().values(
+                NUMERO_NF = 0,
+                SERIE_NF = SERIE_NF
+            )
+
+            ctx.session.execute(cmd)
+            ctx.session.commit()
+
+            return 1
+
+        retorno = query[0].NUMERO_NF + 1
+
+        return retorno
+
     async def getNFCe(self, filtro: filtroNFCe) -> List[dadosNFCe]:
         p = ctx.mapPedido
         ip = ctx.mapItemPedido
@@ -2528,13 +2550,9 @@ class pedido:
         if DESCONTO >= pedido.TOTAL_PEDIDO:
             DESCONTO = 0.00
 
-        maxNF = dadosEmpresa.NUMERO_NFCE
-
-        if maxNF is None:
-            maxNF = 0
-
-        maxNF += 1
-        maxNF = int(maxNF) 
+        maxNF = await self.getNumeroNFCe(
+            str(filtro.SERIE_NF)
+        )
 
         items = sorted(itemsPedido, key=lambda e: e.NUMERO_ITEM)
 
@@ -2948,8 +2966,10 @@ class pedido:
         )
         ctx.session.execute(cmd)
 
-        cmd1 = ctx.tb_empresa.update().values(
-            NUMERO_NFCE = nota.NUMERO_NF
+        cmd1 = ctx.tb_numero_nota.update().values(
+            NUMERO_NF = nota.NUMERO_NF
+        ).where(
+            ctx.mapNUMERO_NOTA.SERIE_NF == nota.SERIE_NF
         )
 
         ctx.session.execute(cmd1)

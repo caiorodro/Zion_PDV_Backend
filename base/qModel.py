@@ -40,7 +40,8 @@ from base.mapTable import (
     mapTransporte,
     mapTributo,
     mapUSUARIO,
-    mapMESA
+    mapMESA,
+    mapNUMERO_NOTA
 )
 from cfg.config import Config
 
@@ -534,6 +535,12 @@ tb_mesa = Table('tb_mesa', metadata,
     Column('NUMERO_PEDIDO', Integer, nullable=True)
 )
 
+tb_numero_nota = Table('tb_numero_nota', metadata,
+    Column('ID_NUMERO', Integer, primary_key=True, autoincrement="auto"),
+    Column('NUMERO_NF', Integer, nullable=True),
+    Column('SERIE_NF',  String(15), nullable=True)
+)
+
 tables = [
     [mapProduto, tb_produto],
     [mapGradePreco, tb_grade_produto],
@@ -563,7 +570,8 @@ tables = [
     [mapCodigoBarrasProduto, tb_codigo_barras_produto],
     [mapTributo, tb_tributo],
     [mapCFOP, tb_cfop],
-    [mapMESA, tb_mesa]
+    [mapMESA, tb_mesa],
+    [mapNUMERO_NOTA, tb_numero_nota]
 ]
 
 def mapAllTables():

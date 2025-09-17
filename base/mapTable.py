@@ -440,3 +440,9 @@ class mapMESA:
         self.NOME_MESA = NOME_MESA
         self.MESA_FECHADA = MESA_FECHADA
         self.NUMERO_PEDIDO = NUMERO_PEDIDO
+
+class mapNUMERO_NOTA:
+    def __init__(self, ID_NUMERO, NUMERO_NF, SERIE_NF):
+        self.ID_NUMERO = ID_NUMERO 
+        self.NUMERO_NF = NUMERO_NF
+        self.SERIE_NF = SERIE_NF

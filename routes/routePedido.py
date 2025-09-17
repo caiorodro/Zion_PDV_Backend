@@ -3,7 +3,7 @@ from fastapi import APIRouter
 from fastapi.security import HTTPBearer
 
 from base.authentication import authentication
-#from base.checkDatabase import checkTables
+from base.checkDatabase import checkTables
 from cfg.config import Config
 from models.aberturaCaixa import aberturaCaixa
 from models.Cliente_Endereco_Transporte import Cliente_Endereco_Transporte
@@ -1092,12 +1092,6 @@ async def checaSenhaReset(dados: senhaReset):
 
     return retorno
 
-# @router.post('/verifyTables')
-# async def verifyTables():
-#     ct = checkTables()
-#     await ct.verifyNewTables()
-#     del ct
-
 @router.get('/getPedidoParaEmissao')
 async def getPedidoParaEmissao(filtro: filtroNumeroPedido):
     ped = NFCe()
@@ -1208,3 +1202,9 @@ async def finalizaNFCe_V2(nota: notaAutorizada):
 
     finally:
         del ped
+
+@router.post('/impactDatabase')
+async def impactDatabase():
+    ct = checkTables()
+    await ct.impactDatabase()
+    del ct
