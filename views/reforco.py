@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime
 
 import base.qModel as ctx
@@ -42,8 +43,8 @@ class Reforco:
 
         return self.qBase.toRoute(retorno, 200)
 
-    async def gravaReforco(self, dados: reforco) -> bool:
-        idUsuario = await self.getUsuarioDoCaixa(dados.ID_ABERTURA)
+    def gravaReforco(self, dados: reforco) -> bool:
+        idUsuario = asyncio.run(self.getUsuarioDoCaixa(dados.ID_ABERTURA))
 
         cmd = ctx.tb_reforco_caixa.insert().values(
             ID_REFORCO=0,

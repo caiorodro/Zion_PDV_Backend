@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime
 from typing import List
 
@@ -45,8 +46,10 @@ class Sangria:
 
         return self.qBase.toRoute(retorno, 200)
 
-    async def gravaSangria(self, dados: sangria) -> bool:
-        idUsuario = await self.getUsuarioDoCaixa(dados.ID_ABERTURA)
+    def gravaSangria(self, dados: sangria) -> bool:
+        idUsuario = asyncio.run(
+            self.getUsuarioDoCaixa(dados.ID_ABERTURA)
+            )
 
         cmd = ctx.tb_sangria.insert().values(
             ID_SANGRIA=0,

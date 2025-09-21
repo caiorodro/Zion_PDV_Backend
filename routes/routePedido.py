@@ -63,12 +63,12 @@ router = APIRouter()
 security = HTTPBearer()
 
 @router.post("/saveOrder")
-async def saveOrder(order: Order):
+def saveOrder(order: Order):
     result = None
     _pedido = pedido()
 
     try:
-        result = await _pedido.test_gravaPedido(order)
+        result = _pedido.test_gravaPedido(order)
     except Exception as ex:
         raise ex
     finally:
@@ -206,12 +206,12 @@ async def buscaProdutosSimilares(filtro: filtroDescricaoProduto):
 
 
 @router.post("/gravaAberturaCaixa")
-async def gravaAberturaCaixa(dados: aberturaCaixa):
+def gravaAberturaCaixa(dados: aberturaCaixa):
     _caixa = Caixa()
     retorno = None
 
     try:
-        retorno = await _caixa.gravaAberturaCaixa(dados)
+        retorno = _caixa.gravaAberturaCaixa(dados)
     except Exception as ex:
         raise ex
     finally:
@@ -266,11 +266,11 @@ async def listaSangria(filtro: filtroSangria):
 
 
 @router.post("/gravaSangria")
-async def gravaSangria(dados: sangria):
+def gravaSangria(dados: sangria):
     _sangria = Sangria()
     retorno = None
     try:
-        retorno = await _sangria.gravaSangria(dados)
+        retorno = _sangria.gravaSangria(dados)
     except Exception as ex:
         raise ex
     finally:
@@ -294,11 +294,12 @@ async def listaReforco(filtro: filtroReforco):
 
 
 @router.post("/gravaReforco")
-async def gravaReforco(dados: reforco):
+def gravaReforco(dados: reforco):
     _reforco = Reforco()
     retorno = None
+
     try:
-        retorno = await _reforco.gravaReforco(dados)
+        retorno = _reforco.gravaReforco(dados)
     except Exception as ex:
         raise ex
     finally:
@@ -379,12 +380,12 @@ async def gravaNSU(dados: nsu):
 
 
 @router.post("/gravaFechamentoCaixa")
-async def gravaFechamentoCaixa(dados: fechamentoCaixa):
+def gravaFechamentoCaixa(dados: fechamentoCaixa):
     _caixa = Caixa()
     result = None
 
     try:
-        result = await _caixa.gravaFechamentoCaixa(dados)
+        result = _caixa.gravaFechamentoCaixa(dados)
     except Exception as ex:
         raise ex
     finally:
@@ -591,11 +592,11 @@ async def get_Dados_Cliente_Endereco_Transporte(dados: Cliente_Endereco_Transpor
 
 
 @router.post("/addItem")
-async def addItem(record: itemPedido):
+def addItem(record: itemPedido):
     _cliente = pedido()
 
     try:
-        await _cliente.addItem(record)
+        _cliente.addItem(record)
     except Exception as ex:
         raise ex
 

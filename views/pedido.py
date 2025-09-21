@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime, timedelta
 from typing import List
 
@@ -82,9 +83,9 @@ class pedido:
 
         return _pedido
 
-    async def test_gravaPedido(self, order: Order):
+    def test_gravaPedido(self, order: Order):
 
-        consumidorFinal = await self.checaConsumidorFinal()
+        consumidorFinal = asyncio.run(self.checaConsumidorFinal())
 
         if not isinstance(consumidorFinal, clienteEndereco):
             raise Exception('Cliente consumidor final não cadastrado')
@@ -92,25 +93,25 @@ class pedido:
         order.pedido.ID_CLIENTE = consumidorFinal.ID_CLIENTE if order.pedido.ID_CLIENTE == 0 else order.pedido.ID_CLIENTE
         order.pedido.ID_ENDERECO = consumidorFinal.ID_ENDERECO if order.pedido.ID_ENDERECO == 0 else order.pedido.ID_ENDERECO
 
-        order.pedido = await self.preencheConsumidorFinal(
+        order.pedido = asyncio.run(self.preencheConsumidorFinal(
             consumidorFinal,
             order.pedido
-        )
+        ))
 
-        idTransporte = await self.getTransporte()
+        idTransporte = asyncio.run(self.getTransporte())
 
         if not isinstance(idTransporte, int):
             raise Exception('Transporte não definido')
 
         order.pedido.ID_TRANSPORTE = idTransporte
 
-        numeroPedido = await self.gravaPedido(order)
+        numeroPedido = self.gravaPedido(order)
 
         return self.qBase.toRoute(
             NUM_PEDIDO(NUMERO_PEDIDO=numeroPedido).__dict__, 200
         )
 
-    async def gravaPedido(self, order: Order) -> dict:
+    def gravaPedido(self, order: Order) -> dict:
         cliente = self.getClientePedido(order.pedido.ID_CLIENTE, order.pedido.ID_ENDERECO)
 
         if 'consumidor final' not in cliente.NOME_CLIENTE.lower():
@@ -133,13 +134,13 @@ class pedido:
         for item in order.pagamento:
             item.NUMERO_PEDIDO = numeroPedido
 
-        [await self.gravaItensPedido(item) for item in order.itemsPedido]
-        [await self.gravaPagamentos(item) for item in order.pagamento]
+        [self.gravaItensPedido(item) for item in order.itemsPedido]
+        [self.gravaPagamentos(item) for item in order.pagamento]
 
-        [await self.test_baixaEstoque(item) for item in order.itemsPedido]
+        [self.test_baixaEstoque(item) for item in order.itemsPedido]
 
         [
-            await self.test_gravaFinanceiro(order.pedido, order.itemsPedido, pagamento)
+            self.test_gravaFinanceiro(order.pedido, order.itemsPedido, pagamento)
             for pagamento in order.pagamento
         ]
 
@@ -153,7 +154,7 @@ class pedido:
             ctx.session.execute(cmd)
 
         if order.impressaoPedido.IMPRESSAO_FISCAL == 1:
-            await self.test_gravaImpressaoFiscal(numeroPedido)
+            self.test_gravaImpressaoFiscal(numeroPedido)
 
         ctx.session.commit()
 
@@ -235,7 +236,7 @@ class pedido:
 
         return int(result.inserted_primary_key[0])
 
-    async def gravaItensPedido(self, item: itemPedido) -> bool:
+    def gravaItensPedido(self, item: itemPedido) -> bool:
         cmd = ctx.tb_item_pedido.insert().values(
             NUMERO_ITEM=0,
             NUMERO_PEDIDO=item.NUMERO_PEDIDO,
@@ -250,7 +251,7 @@ class pedido:
             ID_TERMINAL=item.ID_TERMINAL,
         )
 
-        descricaoProduto = await self.getDescricaoProduto(item.ID_PRODUTO)
+        descricaoProduto = asyncio.run(self.getDescricaoProduto(item.ID_PRODUTO))
 
         cmd1 = ctx.tb_atendimento_comanda.insert().values(
             ID_ATENDIMENTO=0,
@@ -278,7 +279,7 @@ class pedido:
 
         [ctx.session.execute(item) for item in (cmd, cmd1)]
 
-    async def gravaPagamentos(self, item: pedidoPagamento) -> bool:
+    def gravaPagamentos(self, item: pedidoPagamento) -> bool:
 
         formaPagto = item.FORMA_PAGTO
 
@@ -303,10 +304,10 @@ class pedido:
 
         ctx.session.execute(cmd)
 
-    async def test_baixaEstoque(self, item: itemPedido):
-        assert await self.baixaEstoque(item, 1) == True
+    def test_baixaEstoque(self, item: itemPedido):
+        assert self.baixaEstoque(item, 1) == True
 
-    async def baixaEstoque(self, item: itemPedido, movimento: int) -> bool:
+    def baixaEstoque(self, item: itemPedido, movimento: int) -> bool:
         tableCombo = ctx.mapComboProduto
 
         comboProduto = (
@@ -440,14 +441,14 @@ class pedido:
 
         return True
 
-    async def test_gravaFinanceiro(
+    def test_gravaFinanceiro(
         self, pedido: pedido, itemsPedido: List[itemPedido], pagamento: pedidoPagamento
     ) -> bool:
-        assert await self.gravaFinanceiro(pedido, itemsPedido, pagamento) == True
+        assert self.gravaFinanceiro(pedido, itemsPedido, pagamento) == True
 
         return True
 
-    async def gravaFinanceiro(
+    def gravaFinanceiro(
         self, _pedido: pedido, itemsPedido: List[itemPedido], pagamento: pedidoPagamento
     ) -> bool:
         table = ctx.mapFormaPagto
@@ -463,16 +464,16 @@ class pedido:
                 
                 itemsFinanceiro = [
                     itemPedidoFinanceiro(
-                        PRODUTO= await self.getDescricaoProduto(item.ID_PRODUTO),
+                        PRODUTO= asyncio.run(self.getDescricaoProduto(item.ID_PRODUTO)),
                         QTDE=item.QTDE
                     )
                     for item in itemsPedido
                 ]
 
-                await self.inserePagtoFuturo(
+                self.inserePagtoFuturo(
                     pedidoFinanceiro(
                         NUMERO_PEDIDO=_pedido.NUMERO_PEDIDO,
-                        NOME_CLIENTE=await self.getNomeCliente(_pedido.ID_CLIENTE)
+                        NOME_CLIENTE=asyncio.run(self.getNomeCliente(_pedido.ID_CLIENTE))
                     ), 
                     itemsFinanceiro, 
                     pedidoPagamentoFinanceiro(
@@ -483,7 +484,7 @@ class pedido:
 
                 return True
 
-            await self.inserePagtoCartao(_pedido, itemsPedido, pagamento)
+            self.inserePagtoCartao(_pedido, itemsPedido, pagamento)
 
             ctx.session.commit()
 
@@ -503,13 +504,13 @@ class pedido:
 
         ctx.session.execute(cmd)
 
-    async def test_gravaImpressaoFiscal(self, numeroPedido: int) -> bool:
-        assert await self.gravaImpressaoFiscal(numeroPedido) == True
+    def test_gravaImpressaoFiscal(self, numeroPedido: int) -> bool:
+        assert self.gravaImpressaoFiscal(numeroPedido) == True
 
         return True
 
-    async def gravaImpressaoFiscal(self, numeroPedido: int) -> bool:
-        _nf = await self.buscaProximaNF()
+    def gravaImpressaoFiscal(self, numeroPedido: int) -> bool:
+        _nf = asyncio.run(self.buscaProximaNF())
 
         cmd = ctx.tb_pedido_nfe.insert().values(
             ID_PEDIDO_NFE=0,
@@ -632,7 +633,7 @@ class pedido:
 
         return True
 
-    async def inserePagtoCartao(
+    def inserePagtoCartao(
         self, pedido: pedido, itemsPedido: List[itemPedido], pagamento: pedidoPagamento
     ) -> bool:
         formaPagto = (
@@ -687,7 +688,7 @@ class pedido:
 
         items = [
             produtoQtde(
-                DESCRICAO_PRODUTO=await self.getDescricaoProduto(item.ID_PRODUTO),
+                DESCRICAO_PRODUTO=asyncio.run(self.getDescricaoProduto(item.ID_PRODUTO)),
                 QTDE=item.QTDE
             )
             for item in itemsPedido
@@ -697,7 +698,7 @@ class pedido:
             [f"[{item.DESCRICAO_PRODUTO}, Qtde: {str(item.QTDE)}]" for item in items]
         )
 
-        nomeCliente = await self.getNomeCliente(pedido.ID_CLIENTE)
+        nomeCliente = asyncio.run(self.getNomeCliente(pedido.ID_CLIENTE))
 
         descricao = "".join(
             [
@@ -1595,7 +1596,7 @@ class pedido:
 
         await self.refazPagamentoFuturo(NUMERO_PEDIDO)
 
-    async def addItem(self, record: itemPedido):
+    def addItem(self, record: itemPedido):
         p = ctx.mapProduto
 
         produto = (
@@ -1607,8 +1608,9 @@ class pedido:
         record.PRECO_UNITARIO = float(produto.PRECO_BALCAO)
         record.VALOR_TOTAL = round(record.QTDE * record.PRECO_UNITARIO, 2)
 
-        await self.gravaItensPedido(record)
-        await self.recalculaTotaisPedido(record.NUMERO_PEDIDO)
+        self.gravaItensPedido(record)
+
+        asyncio.run(self.recalculaTotaisPedido(record.NUMERO_PEDIDO))
 
     async def listaItens(self, filtro: filtroNumeroPedido) -> List[editItemPedido]:
         i = ctx.mapItemPedido

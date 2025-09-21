@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime, timedelta
 from typing import List
 
@@ -112,13 +113,13 @@ class Caixa:
             else ""
         )
 
-    async def gravaAberturaCaixa(self, dados: aberturaCaixa) -> usuarioTipo:
-        senhaOk = await self.verificaSenhaAberturaCaixa(
+    def gravaAberturaCaixa(self, dados: aberturaCaixa) -> usuarioTipo:
+        senhaOk = asyncio.run(self.verificaSenhaAberturaCaixa(
             dadosUsuario(
                 ID_USUARIO=dados.ID_USUARIO,
                 SENHA_USUARIO=dados.SENHA_CAIXA
             )
-        )
+        ))
 
         if not senhaOk:
             return usuarioTipo(
@@ -470,7 +471,7 @@ class Caixa:
         ctx.session.execute(cmd)
         ctx.session.commit()
 
-    async def gravaFechamentoCaixa(self, dados: fechamentoCaixa) -> dadosFechamento:
+    def gravaFechamentoCaixa(self, dados: fechamentoCaixa) -> dadosFechamento:
         cmd = ctx.tb_fechamento_caixa.insert().values(
             ID_FECHAMENTO=0,
             ID_ABERTURA=dados.ID_ABERTURA,
