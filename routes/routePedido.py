@@ -191,12 +191,12 @@ async def buscaProdutoPorCodigo(filtro: filtroCodigoProduto):
 
 
 @router.get("/buscaProdutosSimilares")
-async def buscaProdutosSimilares(filtro: filtroDescricaoProduto):
+def buscaProdutosSimilares(filtro: filtroDescricaoProduto):
     _produto = produto()
     retorno = None
 
     try:
-        retorno = await _produto.buscaProdutosSimilares(filtro)
+        retorno = _produto.buscaProdutosSimilares(filtro)
     except Exception as ex:
         raise ex
     finally:

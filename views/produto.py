@@ -1,3 +1,4 @@
+import asyncio
 from decimal import Decimal
 import json
 import os
@@ -199,7 +200,7 @@ class produto:
                     PRECO=float(rec.PRECO_BALCAO),
                     TOTAL=round(float(rec.PRECO_BALCAO) * itemCodigoBalanca.QTDE, 2),
                     ID_TRIBUTO=rec.ID_TRIBUTO,
-                    QTDE_FRACIONADA=await self.qBase.isFamiliaBalanca(rec.ID_FAMILIA) if isinstance(rec.ID_FAMILIA, int) else False,
+                    QTDE_FRACIONADA=self.qBase.isFamiliaBalanca(rec.ID_FAMILIA) if isinstance(rec.ID_FAMILIA, int) else False,
                     ID_FAMILIA = rec.ID_FAMILIA
                 )
             ]
@@ -239,7 +240,7 @@ class produto:
                     ),
                     TOTAL=rec.PRECO_BALCAO,
                     ID_TRIBUTO=rec.ID_TRIBUTO,
-                    QTDE_FRACIONADA=await self.qBase.isFamiliaBalanca(rec.ID_FAMILIA) if isinstance(rec.ID_FAMILIA, int) else False
+                    QTDE_FRACIONADA=self.qBase.isFamiliaBalanca(rec.ID_FAMILIA) if isinstance(rec.ID_FAMILIA, int) else False
                 )
             ]
 
@@ -272,12 +273,12 @@ class produto:
                         ),
                         TOTAL=rec.PRECO_BALCAO,
                         ID_TRIBUTO=rec.ID_TRIBUTO,
-                        QTDE_FRACIONADA=await self.qBase.isFamiliaBalanca(rec.ID_FAMILIA) if isinstance(rec.ID_FAMILIA, int) else False
+                        QTDE_FRACIONADA=self.qBase.isFamiliaBalanca(rec.ID_FAMILIA) if isinstance(rec.ID_FAMILIA, int) else False
                     )
                 ]
 
         if not any(lista):
-            pesquisa = await self.buscaProdutosSimilares(
+            pesquisa = self.buscaProdutosSimilares(
                 filtroDescricaoProduto(
                     DESCRICAO=filtro.CODIGO,
                     QTDE=filtro.QTDE
@@ -302,7 +303,7 @@ class produto:
                         ),
                         TOTAL=rec.PRECO_BALCAO,
                         ID_TRIBUTO=rec.ID_TRIBUTO,
-                        QTDE_FRACIONADA=await self.qBase.isFamiliaBalanca(rec.ID_FAMILIA) if isinstance(rec.ID_FAMILIA, int) else False
+                        QTDE_FRACIONADA=self.qBase.isFamiliaBalanca(rec.ID_FAMILIA) if isinstance(rec.ID_FAMILIA, int) else False
                     )
                 ]
 
@@ -319,7 +320,7 @@ class produto:
         except:
             return [filtro]
 
-    async def buscaProdutosSimilares(
+    def buscaProdutosSimilares(
         self, filtro: filtroDescricaoProduto
     ) -> List[listaProduto]:
         lista = []
@@ -339,17 +340,17 @@ class produto:
             listaProduto(
                 ID_PRODUTO=row.ID_PRODUTO,
                 DESCRICAO_PRODUTO=row.DESCRICAO_PRODUTO,
-                PRECO_BALCAO=await self.getPrecoAtacado(
+                PRECO_BALCAO=asyncio.run(self.getPrecoAtacado(
                     getProduto(
                         ID_PRODUTO=row.ID_PRODUTO,
                         QTDE=filtro.QTDE
-                    )
+                    ))
                 ) if filtro.QTDE > 1 else float(row.PRECO_BALCAO),
                 ID_TRIBUTO=row.ID_TRIBUTO,
                 SALDO=0,
                 CODIGO_ZE="" if row.CODIGO_ZE is None else row.CODIGO_ZE,
                 PRODUTO_ATIVO=row.PRODUTO_ATIVO,
-                QTDE_FRACIONADA=await self.qBase.isFamiliaBalanca(row.ID_FAMILIA) if isinstance(row.ID_FAMILIA, int) else False,
+                QTDE_FRACIONADA=self.qBase.isFamiliaBalanca(row.ID_FAMILIA) if isinstance(row.ID_FAMILIA, int) else False,
                 ID_FAMILIA=row.ID_FAMILIA
             )
             for row in query

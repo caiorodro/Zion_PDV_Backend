@@ -1,5 +1,6 @@
 import uvicorn
 from fastapi import FastAPI
+from fastapi.middleware.gzip import GZipMiddleware
 
 from multiprocessing import cpu_count, freeze_support
 
@@ -20,6 +21,7 @@ app = FastAPI(
     license_info={"name": "Zion PDV", "url": "https://portalziondelivery.com.br/pdv"}
 )
 
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 app.include_router(router)
 
 if __name__ == "__main__":

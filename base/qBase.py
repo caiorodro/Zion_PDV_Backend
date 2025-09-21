@@ -244,7 +244,7 @@ class qBase:
 
         return retorno
     
-    async def isFamiliaBalanca(self, ID_FAMILIA: int) -> bool:
+    def isFamiliaBalanca(self, ID_FAMILIA: int) -> bool:
         content = self.getPrefs()
 
         if isinstance(content, prefs):
