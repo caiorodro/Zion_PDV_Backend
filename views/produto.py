@@ -79,7 +79,7 @@ class produto:
             listaDeProduto(
                 ID_PRODUTO=row.ID_PRODUTO,
                 DESCRICAO_PRODUTO=row.DESCRICAO_PRODUTO,
-                PRECO_BALCAO=await self.getPrecoAtacado(
+                PRECO_BALCAO=self.getPrecoAtacado(
                     getProduto(ID_PRODUTO=row.ID_PRODUTO, QTDE=filtro.QTDE)
                 ),
                 ID_TRIBUTO=row.ID_TRIBUTO,
@@ -89,7 +89,7 @@ class produto:
 
         return self.qBase.toRoute(lista, 200)
 
-    async def getPrecoAtacado(self, filtro: getProduto) -> float:
+    def getPrecoAtacado(self, filtro: getProduto) -> float:
         preco = (
             ctx.session.query(ctx.mapProduto.ID_PRODUTO, ctx.mapProduto.PRECO_BALCAO)
             .filter(ctx.mapProduto.ID_PRODUTO == filtro.ID_PRODUTO)
@@ -127,7 +127,7 @@ class produto:
         return retorno
 
     async def routePrecoAtacado(self, filtro: getProduto):
-        precoBalcao = await self.getPrecoAtacado(filtro)
+        precoBalcao = self.getPrecoAtacado(filtro)
 
         return self.qBase.toRoute(
             precoAtacado(PRECO=precoBalcao).__dict__, 200
@@ -232,7 +232,7 @@ class produto:
                     ID_PRODUTO=rec.ID_PRODUTO,
                     DESCRICAO_PRODUTO=rec.DESCRICAO_PRODUTO,
                     QTDE=filtro.QTDE,
-                    PRECO=await self.getPrecoAtacado(
+                    PRECO=self.getPrecoAtacado(
                         getProduto(
                             ID_PRODUTO=rec.ID_PRODUTO,
                             QTDE=filtro.QTDE
@@ -265,7 +265,7 @@ class produto:
                         ID_PRODUTO=rec.ID_PRODUTO,
                         DESCRICAO_PRODUTO=rec.DESCRICAO_PRODUTO,
                         QTDE=filtro.QTDE,
-                        PRECO=await self.getPrecoAtacado(
+                        PRECO=self.getPrecoAtacado(
                             getProduto(
                                 ID_PRODUTO=rec.ID_PRODUTO,
                                 QTDE=filtro.QTDE
@@ -295,7 +295,7 @@ class produto:
                         ID_PRODUTO=rec.ID_PRODUTO,
                         DESCRICAO_PRODUTO=rec.DESCRICAO_PRODUTO,
                         QTDE=filtro.QTDE,
-                        PRECO=await self.getPrecoAtacado(
+                        PRECO=self.getPrecoAtacado(
                             getProduto(
                                 ID_PRODUTO=rec.ID_PRODUTO,
                                 QTDE=filtro.QTDE
@@ -340,11 +340,11 @@ class produto:
             listaProduto(
                 ID_PRODUTO=row.ID_PRODUTO,
                 DESCRICAO_PRODUTO=row.DESCRICAO_PRODUTO,
-                PRECO_BALCAO=asyncio.run(self.getPrecoAtacado(
+                PRECO_BALCAO=self.getPrecoAtacado(
                     getProduto(
                         ID_PRODUTO=row.ID_PRODUTO,
                         QTDE=filtro.QTDE
-                    ))
+                    )
                 ) if filtro.QTDE > 1 else float(row.PRECO_BALCAO),
                 ID_TRIBUTO=row.ID_TRIBUTO,
                 SALDO=0,

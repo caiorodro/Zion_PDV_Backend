@@ -289,7 +289,7 @@ class Caixa:
         _filters = [
             p.STATUS_PEDIDO == 3,
             p.ID_CAIXA == filtro.ID_CAIXA,
-            pg.FORMA_PAGTO == filtro.FORMA_PAGTO,
+            pg.FORMA_PAGTO == filtro.FORMA_PAGTO
         ]
 
         totais = (
@@ -338,7 +338,7 @@ class Caixa:
                 totaisPorFormaPagto(
                     FORMA_PAGTO=item.FORMA_PAGTO,
                     TROCO=float(recTroco.TROCO) if recTroco.TROCO is not None else 0.00,
-                    TOTAL_PAGTO=item.TOTAL_PAGO,
+                    TOTAL_PAGTO=item.TOTAL_PAGO - recTroco.TROCO,
                     DESCONTO=float(recTroco.DESCONTO)
                     if recTroco.DESCONTO is not None
                     else 0.00,
@@ -388,7 +388,7 @@ class Caixa:
 
         retorno.TOTAL_FINAL = (
             (retorno.TOTAL_PAGTO + retorno.REFORCO) - retorno.SANGRIA
-        ) - retorno.TROCO
+        ) #- retorno.TROCO
 
         retorno.TOTAL_FINAL = round(retorno.TOTAL_FINAL, 2)
 
@@ -432,6 +432,7 @@ class Caixa:
                 p.STATUS_PEDIDO,
                 p.NOME_CLIENTE,
                 p.TOTAL_PEDIDO,
+                p.TROCO,
                 pg.VALOR_PAGO,
                 pg.CODIGO_NSU,
                 pg.ID_PAGAMENTO,
@@ -442,6 +443,25 @@ class Caixa:
             .all()
         )
 
+        def calculaValorPago(valorPago, troco) -> float:
+            if valorPago is None:
+                valorPago = 0.00
+
+            if troco is None:
+                troco = 0.00
+
+            retorno = 0.00
+
+            try:
+                retorno = round(
+                    float(valorPago) - float(troco),
+                    2
+                )
+            except:
+                pass
+
+            return retorno
+
         retorno = [
             listaDePagamentos(
                 NUMERO_PEDIDO=item.NUMERO_PEDIDO,
@@ -451,7 +471,7 @@ class Caixa:
                 TOTAL_PEDIDO=0.00
                 if item.TOTAL_PEDIDO is None
                 else float(item.TOTAL_PEDIDO),
-                TOTAL_PAGO=0.00 if item.VALOR_PAGO is None else float(item.VALOR_PAGO),
+                TOTAL_PAGO=calculaValorPago(item.VALOR_PAGO, item.TROCO),
                 CODIGO_NSU="" if item.CODIGO_NSU is None else item.CODIGO_NSU,
                 ID_PAGAMENTO=item.ID_PAGAMENTO,
                 VALOR_PAGO_STONE=0 if item.VALOR_PAGO_STONE is None else float(item.VALOR_PAGO_STONE)
@@ -956,6 +976,24 @@ class Caixa:
 
         return retorno
 
+    def getTrocoOrigem(self, filtro: filtroCAIXA, ORIGEM: str) -> float:
+        p = ctx.mapPedido
+
+        _filters = [
+            p.STATUS_PEDIDO == 3, 
+            p.ID_CAIXA == filtro.ID_CAIXA,
+            p.ORIGEM == ORIGEM
+        ]
+
+        somaTroco = ctx.session.query(
+            p.NUMERO_PEDIDO,
+            p.TROCO
+        ).filter(*_filters).all()
+
+        return sum(
+            [float(item.TROCO) for item in somaTroco]
+        )
+    
     async def calculaCaixaPorFormaPagtoOrigem(
         self, filtro: filtroCAIXA
     ) -> List[ResumoFormaPagtoOrigem]:
@@ -989,10 +1027,13 @@ class Caixa:
                 DIFERENCA=0,
                 DATA_HORA_FECHAMENTO="",
                 VALOR_FECHAMENTO=0,
-                TROCO=0,
+                TROCO=self.getTrocoOrigem(filtro, item.ORIGEM)
             )
             for item in totais
         ]
+
+        for item in retorno:
+            item.VALOR_VENDA -= item.TROCO
 
         return retorno
 

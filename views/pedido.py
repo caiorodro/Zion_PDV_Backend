@@ -833,7 +833,7 @@ class pedido:
                 PRECO=row.PRECO_UNITARIO,
                 TOTAL=row.VALOR_TOTAL,
                 ID_TRIBUTO=row.ID_TRIBUTO,
-                QTDE_FRACIONADA=await self.qBase.isFamiliaBalanca(row.ID_FAMILIA) if isinstance(row.ID_FAMILIA, int) else False
+                QTDE_FRACIONADA=self.qBase.isFamiliaBalanca(row.ID_FAMILIA) if isinstance(row.ID_FAMILIA, int) else False
             ).__dict__
             for row in select1
         ]
@@ -1326,7 +1326,7 @@ class pedido:
 
         if _status == 3:
             [
-                await self.baixaEstoque(
+                self.baixaEstoque(
                     itemPedido(
                         NUMERO_ITEM=item.NUMERO_ITEM,
                         NUMERO_PEDIDO=item.NUMERO_PEDIDO,

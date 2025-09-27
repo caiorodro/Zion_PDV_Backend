@@ -1023,13 +1023,13 @@ async def conferePagamento(record: listaDePagamentos):
         del ped
 
 @router.get('/buscaPrecoGrade')
-async def buscaPrecoGrade(filtro: getProduto):
+def buscaPrecoGrade(filtro: getProduto):
     ped = produto()
 
     retorno = 0
 
     try:
-        retorno = await ped.getPrecoAtacado(filtro)
+        retorno = ped.getPrecoAtacado(filtro)
 
         if not isinstance(retorno, float):
             retorno = 0.00
