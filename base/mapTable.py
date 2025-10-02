@@ -403,7 +403,7 @@ class mapCodigoBarrasProduto:
 class mapTributo:
     def __init__(self, ID_TRIBUTO, NCM, UF_DESTINO, CFOP, CST, ALIQ_ICMS, ALIQ_INTERNA_ICMS, MODO_BASE_CALCULO_ICMS_ST,  
         IVA, CST_IPI, ALIQ_IPI, CST_PIS, ALIQ_PIS, CST_COFINS, ALIQ_COFINS, NOME_OPERACAO, CEST, PERCENTUAL_RED_BASE_ICMS,  
-        CODIGO_GENERO, ID_EMPRESA, PERCENTUAL_FCP):
+        CODIGO_GENERO, ID_EMPRESA, PERCENTUAL_FCP, IBS, CBS, ISERV):
         self.ID_TRIBUTO = ID_TRIBUTO
         self.NCM  = NCM
         self.UF_DESTINO = UF_DESTINO
@@ -425,6 +425,9 @@ class mapTributo:
         self.CODIGO_GENERO = CODIGO_GENERO
         self.ID_EMPRESA = ID_EMPRESA
         self.PERCENTUAL_FCP = PERCENTUAL_FCP
+        self.IBS = IBS
+        self.CBS = CBS
+        self.ISERV = ISERV
 
 class mapCFOP:
     def __init__(self, CFOP, DESCRICAO_CFOP, VENDA, DEVOLUCAO):

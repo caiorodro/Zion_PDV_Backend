@@ -72,6 +72,9 @@ class dadosNFCe(BaseModel):
     CST_COFINS: str
     ALIQ_COFINS: float
     CEST: str
+    CBS: float
+    IBS: float
+    ISERV: float
     PROTOCOLO: str
     FATURAR_TAXA_ENTREGA: int
     pFCP: float

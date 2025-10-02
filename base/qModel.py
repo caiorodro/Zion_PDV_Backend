@@ -516,6 +516,9 @@ tb_tributo = Table(
     Column("CODIGO_GENERO", String(30), nullable=True),
     Column("ID_EMPRESA", Integer, nullable=True),
     Column("PERCENTUAL_FCP", DECIMAL, nullable=True),
+    Column('IBS', DECIMAL, nullable=True),
+    Column('CBS', DECIMAL, nullable=True),
+    Column('ISERV', DECIMAL, nullable=True)
 )
 
 tb_cfop = Table(

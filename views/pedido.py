@@ -554,7 +554,7 @@ class pedido:
 
         return retorno
 
-    async def inserePagtoFuturo(
+    def inserePagtoFuturo(
         self, pedido: pedidoFinanceiro, itemsPedido: List[itemPedidoFinanceiro], pagamento: pedidoPagamentoFinanceiro,
 
     ) -> bool:
@@ -1538,7 +1538,7 @@ class pedido:
             [p.NUMERO_PEDIDO == NUMERO_PEDIDO, p.ID_CLIENTE == c.ID_CLIENTE]
         ).first().NOME_CLIENTE
 
-        await self.inserePagtoFuturo(
+        self.inserePagtoFuturo(
             pedidoFinanceiro(
                 NUMERO_PEDIDO=NUMERO_PEDIDO,
                 NOME_CLIENTE=nomeCliente
@@ -2423,6 +2423,9 @@ class pedido:
                 CST_COFINS=Tributo.CST_COFINS,
                 ALIQ_COFINS=Tributo.ALIQ_COFINS,
                 CEST="" if Tributo.CEST is None else Tributo.CEST,
+                CBS=Tributo.CBS if Tributo.CBS is not None else 0,
+                IBS=Tributo.IBS if Tributo.IBS is not None else 0,
+                ISERV=Tributo.ISERV if Tributo.ISERV is not None else 0,
                 FATURAR_TAXA_ENTREGA=int(dadosEmpresa.FATURAR_TAXA_ENTREGA),
                 pFCP=0.00
                 if Tributo.PERCENTUAL_FCP is None
