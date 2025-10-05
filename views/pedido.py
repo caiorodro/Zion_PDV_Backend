@@ -2980,5 +2980,46 @@ class pedido:
         ctx.session.execute(cmd1)
         ctx.session.commit()
 
+    async def getEnderecoDoPedido(self, filtro: filtroNumeroPedido) -> str:
+        p = ctx.mapPedido
+        e = ctx.mapEnderecoCliente
+
+        query1 = ctx.session.query(
+            p.NUMERO_PEDIDO,
+            p.ID_CLIENTE,
+            p.ID_ENDERECO
+        ).filter(
+            p.NUMERO_PEDIDO == filtro.NUMERO_PEDIDO
+        ).all()
+
+        idEndereco = query1[0].ID_ENDERECO
+
+        query2 = ctx.session.query(
+            e.ENDERECO, 
+            e.NUMERO_ENDERECO,
+            e.COMPLEMENTO_ENDERECO,
+            e.BAIRRO,
+            e.CEP,
+            e.MUNICIPIO,
+            e.UF
+        ).filter(*[
+            e.ID_ENDERECO == idEndereco
+        ]).all()
+
+        retorno = ''
+
+        if any(query2):
+            retorno = ''.join((
+                query2[0].ENDERECO, ', \n',
+                query2[0].NUMERO_ENDERECO, ' - ',
+                query2[0].COMPLEMENTO_ENDERECO, '\n',
+                query2[0].BAIRRO, '\n',
+                query2[0].CEP, '\n',
+                query2[0].MUNICIPIO, ' - ',
+                query2[0].UF
+            ))
+
+        return retorno
+
     def __del__(self):
         ctx.session.close_all()

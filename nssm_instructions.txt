@@ -1,4 +1,4 @@
-nssm.exe install ZionPDV c:\Projetos\Zion_PDV_Nativo\backend\chamada.bat
+nssm.exe install ZionPDV "C:\Users\zionp\AppData\Local\Programs\Python\Python310\python.exe" "c:\Projetos\Zion_PDV_Nativo\backend\main.py"
 nssm.exe set ZionPDV AppDirectory c:\Projetos\Zion_PDV_Nativo\backend
 nssm.exe set ZionPDV Description Service for Zion PDV Nativo
 nssm.exe start ZionPDV

@@ -253,8 +253,8 @@ class qBase:
         return retorno
 
     def getPrefs(self) -> prefs:
-        content = None
-        
+        content = None 
+
         try:
             with open('cfg/prefs.json', 'r', encoding='utf-8') as fi:
                 content = prefs(**json.loads(fi.read()))

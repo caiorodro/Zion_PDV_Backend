@@ -1,10 +1,13 @@
 
+import traceback
+
 from fastapi import APIRouter
 from fastapi.security import HTTPBearer
 
 from base.authentication import authentication
 from base.checkDatabase import checkTables
 from cfg.config import Config
+from logs.manageLog import manageLog
 from models.aberturaCaixa import aberturaCaixa
 from models.Cliente_Endereco_Transporte import Cliente_Endereco_Transporte
 from models.conclusaoPagamento import conclusaoPagamento
@@ -159,7 +162,6 @@ async def getNewToken():
 
     return auth
 
-
 @router.get("/listaAtendimento")
 async def listaAtendimento(filtro: filtroNumeroPedido):
     _pedido = pedido()
@@ -174,7 +176,6 @@ async def listaAtendimento(filtro: filtroNumeroPedido):
 
     return retorno
 
-
 @router.get("/buscaProdutoPorCodigo")
 async def buscaProdutoPorCodigo(filtro: filtroCodigoProduto):
     _produto = produto()
@@ -183,12 +184,12 @@ async def buscaProdutoPorCodigo(filtro: filtroCodigoProduto):
     try:
         retorno = await _produto.buscaProdutoPorCodigo(filtro)
     except Exception as ex:
+        manageLog().setLogInfo(ex.arg[0], traceback.format_exc())
         raise ex
     finally:
         del _produto
 
     return retorno
-
 
 @router.get("/buscaProdutosSimilares")
 def buscaProdutosSimilares(filtro: filtroDescricaoProduto):
@@ -198,12 +199,13 @@ def buscaProdutosSimilares(filtro: filtroDescricaoProduto):
     try:
         retorno = _produto.buscaProdutosSimilares(filtro)
     except Exception as ex:
+        manageLog().writeLog(ex.arg[0], traceback.format_exc())
+
         raise ex
     finally:
         del _produto
 
     return retorno
-
 
 @router.post("/gravaAberturaCaixa")
 def gravaAberturaCaixa(dados: aberturaCaixa):
@@ -1209,3 +1211,19 @@ async def impactDatabase():
     ct = checkTables()
     await ct.impactDatabase()
     del ct
+
+@router.get('/getEnderecoDoPedido')
+async def getEnderecoDoPedido(filtro: filtroNumeroPedido):
+    ped = pedido()
+    
+    retorno = ''
+
+    try:
+        retorno = await ped.getEnderecoDoPedido(filtro)
+    except Exception as ex:
+        raise ex
+
+    finally:
+        del ped
+
+    return retorno
