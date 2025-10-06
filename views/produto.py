@@ -1,4 +1,3 @@
-import asyncio
 from decimal import Decimal
 import json
 import os
@@ -21,6 +20,7 @@ from models.precoAtacado import precoAtacado
 from models.produtoBalanca import produtoBalanca
 
 class produto:
+
     def __init__(self, keep=None, idUser=None):
         self.qBase = qBase(keep)
 
@@ -407,7 +407,7 @@ class produto:
         lista = [
             comboProduto(
                 ID_PRODUTO=row.ID_PRODUTO,
-                DESCRICAO_PRODUTO = f'{row.DESCRICAO_PRODUTO}, [{row.CODIGO_PRODUTO}]'
+                DESCRICAO_PRODUTO = f'{row.DESCRICAO_PRODUTO.upper()}, [{row.CODIGO_PRODUTO}]'
             )
             for row in select1
         ]
