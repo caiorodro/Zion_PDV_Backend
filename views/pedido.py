@@ -11,6 +11,7 @@ from cfg.config import Config
 from models.clienteEndereco import clienteEndereco
 from models.clientePedido import clientePedido
 from models.conclusaoPagamento import conclusaoPagamento
+from models.comboProduto import comboProduto
 from models.dadosEmitente import dadosEmitente
 from models.dadosNFCe import dadosNFCe
 from models.dadosPedido import dadosPedido
@@ -24,6 +25,7 @@ from models.filtroListaPedido import filtroListaPedido
 from models.filtroNFCe import filtroNFCe
 from models.filtroNumeroPedido import filtroNumeroPedido
 from models.filtroPedido import filtroPedido
+from models.filtroProduto import filtroProduto
 from models.FORMAS_PAGTO_IMPRESSAO import FORMAS_PAGTO_IMPRESSAO
 from models.impressaoAvulsa import impressaoAvulsa
 from models.impressaoPedidoBalcao import impressaoPedidoBalcao
@@ -49,15 +51,15 @@ from models.pedidoFinanceiro import pedidoFinanceiro
 from models.pedidoPagamento import pedidoPagamento
 from models.pedidoPagamentoFinanceiro import pedidoPagamentoFinanceiro
 from models.produtoQtde import produtoQtde
+from models.produtoIDQtde import produtoIDQtde
 from models.TOTAL_PEDIDO import TOTAL_PEDIDO
 
 class pedido:
     def __init__(self, keep=None, idUser=None):
         self.qBase = qBase(keep)
-        self.__listOfUsers = []
-        self.__idUser = idUser
 
         self.idPlanoPagtoFuturo = "1.0.2"
+        self.prefs = self.qBase.getPrefs()
 
     async def preencheConsumidorFinal(self, consumidorFinal: clienteEndereco, _pedido: ped) -> ped:
         c = ctx.mapCliente
@@ -3020,6 +3022,93 @@ class pedido:
             ))
 
         return retorno
+
+    def confereEstoque(self, items: List[produtoIDQtde]) -> str:
+        if not self.prefs.VENDER_SEM_ESTOQUE:
+            semEstoque = self.checaEstoqueDopedido(items)
+
+            if len(semEstoque) > 0:
+                retorno = 'O item: '
+
+                if ',' in semEstoque:
+                    retorno = 'Os items: '
+                return f'{retorno}[{semEstoque}] não tem saldo para venda'
+
+        return ''
+
+    def buscaSaldoProduto(self, filtro: filtroProduto) -> float:
+        e = ctx.mapEstoque
+
+        filters = [e.ID_PRODUTO == filtro.ID_PRODUTO, e.MOVIMENTO == 0]
+
+        entradas = (
+            ctx.session.query(func.sum(e.QTDE_ESTOQUE).label("ENTRADAS"))
+            .filter(*filters)
+            .first()
+        )
+
+        filters = [e.ID_PRODUTO == filtro.ID_PRODUTO, e.MOVIMENTO == 1]
+
+        saidas = (
+            ctx.session.query(func.sum(e.QTDE_ESTOQUE).label("SAIDAS"))
+            .filter(*filters)
+            .first()
+        )
+
+        e = entradas[0]
+        s = saidas[0]
+
+        if e is None:
+            e = 0
+
+        if s is None:
+            s = 0
+
+        saldo = float(e) - float(s)
+
+        return saldo
+
+    def getDescricaoProdutos(self, items: List[produtoIDQtde]) -> List[comboProduto]:
+        pr = ctx.mapProduto
+
+        ids = [item.ID_PRODUTO for item in items]
+
+        query = ctx.session.query(
+            pr.ID_PRODUTO,
+            pr.DESCRICAO_PRODUTO
+        ).filter(
+            pr.ID_PRODUTO.in_(ids)    
+        )
+
+        retorno = [
+            comboProduto(
+                ID_PRODUTO=item.ID_PRODUTO,
+                DESCRICAO_PRODUTO=item.DESCRICAO_PRODUTO
+            )
+            for item in query
+        ]
+
+        return retorno
+
+    def checaEstoqueDopedido(self, itemsPedido: List[produtoIDQtde]) -> str:
+
+        retorno = []
+
+        items = self.getDescricaoProdutos(itemsPedido)
+
+        for item in itemsPedido:
+            saldo = self.buscaSaldoProduto(
+                filtroProduto(
+                    ID_PRODUTO=item.ID_PRODUTO
+                )
+            )
+
+            if saldo < item.QTDE:
+                retorno.append(
+                    list(filter(lambda e: e.ID_PRODUTO == item.ID_PRODUTO, items))[0].DESCRICAO_PRODUTO
+                )
+
+        return ', '.join(retorno)
 
     def __del__(self):
         ctx.session.close_all()

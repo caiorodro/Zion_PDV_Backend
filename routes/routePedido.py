@@ -1,4 +1,5 @@
 
+from typing import List
 import traceback
 
 from fastapi import APIRouter
@@ -47,6 +48,7 @@ from models.nsu import nsu
 from models.numeroItemPedido import numeroItemPedido
 from models.Order import Order
 from models.pagamentoPedido import pagamentoPedido
+from models.produtoIDQtde import produtoIDQtde
 from models.reforco import reforco
 from models.sangria import sangria
 from models.senhaReset import senhaReset
@@ -184,7 +186,6 @@ async def buscaProdutoPorCodigo(filtro: filtroCodigoProduto):
     try:
         retorno = await _produto.buscaProdutoPorCodigo(filtro)
     except Exception as ex:
-        manageLog().setLogInfo(ex.arg[0], traceback.format_exc())
         raise ex
     finally:
         del _produto
@@ -199,8 +200,6 @@ def buscaProdutosSimilares(filtro: filtroDescricaoProduto):
     try:
         retorno = _produto.buscaProdutosSimilares(filtro)
     except Exception as ex:
-        manageLog().writeLog(ex.arg[0], traceback.format_exc())
-
         raise ex
     finally:
         del _produto
@@ -1220,6 +1219,22 @@ async def getEnderecoDoPedido(filtro: filtroNumeroPedido):
 
     try:
         retorno = await ped.getEnderecoDoPedido(filtro)
+    except Exception as ex:
+        raise ex
+
+    finally:
+        del ped
+
+    return retorno
+
+@router.get('/confereEstoque')
+def confereEstoque(items: List[produtoIDQtde]):
+    ped = pedido()
+    
+    retorno = ''
+
+    try:
+        retorno = ped.confereEstoque(items)
     except Exception as ex:
         raise ex
 
