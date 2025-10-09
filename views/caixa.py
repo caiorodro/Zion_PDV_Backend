@@ -388,7 +388,7 @@ class Caixa:
 
         retorno.TOTAL_FINAL = (
             (retorno.TOTAL_PAGTO + retorno.REFORCO) - retorno.SANGRIA
-        ) #- retorno.TROCO
+        )
 
         retorno.TOTAL_FINAL = round(retorno.TOTAL_FINAL, 2)
 

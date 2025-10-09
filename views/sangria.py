@@ -6,10 +6,13 @@ import base.qModel as ctx
 from base.qBase import qBase
 
 from models.filtroCAIXA import filtroCAIXA
+from models.filtroFormasPagtoCaixa import filtroFormasPagtoCaixa
 from models.filtroSangria import filtroSangria
 from models.impressaoSangria import impressaoSangria
 from models.listaSangria import listaSangria
 from models.sangria import sangria
+
+from views.caixa import Caixa
 
 class Sangria:
     def __init__(self, keep=None, idUser=None):
@@ -47,6 +50,17 @@ class Sangria:
         return self.qBase.toRoute(retorno, 200)
 
     def gravaSangria(self, dados: sangria) -> bool:
+
+        ha = asyncio.run(
+            self.verificaSeHaDinheiroNoCaixa(
+                dados.ID_ABERTURA,
+                dados.VALOR_SANGRIA
+            )
+        )
+
+        if not ha:
+            raise Exception('Não dinheiro em caixa suficiente para essa sangria')
+
         idUsuario = asyncio.run(
             self.getUsuarioDoCaixa(dados.ID_ABERTURA)
             )
@@ -59,13 +73,32 @@ class Sangria:
             VALOR_SANGRIA=dados.VALOR_SANGRIA,
             ID_SANGRIA_LOCAL=dados.ID_SANGRIA_LOCAL,
             ID_TERMINAL=dados.ID_TERMINAL,
-            ID_ABERTURA=dados.ID_ABERTURA,
+            ID_ABERTURA=dados.ID_ABERTURA
         )
 
         ctx.session.execute(cmd)
         ctx.session.commit()
 
         return True
+
+    async def verificaSeHaDinheiroNoCaixa(self, ID_CAIXA: int, VALOR_SANGRIA: float) -> bool:
+        cx = Caixa()
+
+        totais = await cx.calcula_Totais_Por_Forma_Pagto(
+            filtroFormasPagtoCaixa(
+                ID_CAIXA=ID_CAIXA,
+                FORMA_PAGTO="DINHEIRO",
+                NUMERO_IMPRESSORA=0
+            )
+        )
+
+        totalEmCaixa = totais.VALOR_ABERTURA + totais.TOTAL_PAGTO + totais.REFORCO
+        totalEmCaixa = totalEmCaixa - totais.SANGRIA
+
+        totalEmCaixa += .01
+        totalEmCaixa = round(totalEmCaixa, 2)
+
+        return VALOR_SANGRIA < totalEmCaixa
 
     async def getUsuario(self, ID_USUARIO) -> str:
         NOME_USUARIO = (
