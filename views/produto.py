@@ -18,6 +18,7 @@ from models.listaDeProduto import listaDeProduto
 from models.listaProduto import listaProduto
 from models.precoAtacado import precoAtacado
 from models.produtoBalanca import produtoBalanca
+from models.produtoPrecoBalanca import produtoPrecoBalanca
 
 class produto:
 
@@ -133,12 +134,13 @@ class produto:
             precoAtacado(PRECO=precoBalcao).__dict__, 200
         )
 
-    async def getItemBalanca(self, filtro: filtroCodigoProduto) -> produtoBalanca | None:
+    async def getItemBalanca(self, filtro: filtroCodigoProduto) -> produtoBalanca | produtoPrecoBalanca | None:
 
         dadosBalanca = itemBalanca(
             TAMANHO_CODIGO_BARRAS=13,
             POSICAO_CODIGO_PRODUTO=[1, 7],
-            POSICAO_QTDE_PESO=[7, -1]
+            POSICAO_QTDE_PESO=[7, -1],
+            POSICAO_PRECO=[7, -1]
         )
 
         fileBalanca = 'cfg/itemBalanca.json'
@@ -174,12 +176,27 @@ class produto:
             if item.ID_FAMILIA in self.prefs.FAMILIAS_BALANCA
         ]
 
-        record = produtoBalanca(
-            ITEM_PRODUTO=itemsBalanca[0],
-            QTDE=float(filtro.CODIGO[
-                dadosBalanca.POSICAO_QTDE_PESO[0]: dadosBalanca.POSICAO_QTDE_PESO[1]
-                ]) / 1000
-        ) if any(items) else None
+        record = None
+
+        if not any(itemsBalanca):
+            return record
+
+        if any(dadosBalanca.POSICAO_QTDE_PESO):
+            record = produtoBalanca(
+                ITEM_PRODUTO=itemsBalanca[0],
+                QTDE=float(filtro.CODIGO[
+                    dadosBalanca.POSICAO_QTDE_PESO[0]: dadosBalanca.POSICAO_QTDE_PESO[1]
+                    ]) / 1000
+                )
+
+        if any(dadosBalanca.POSICAO_PRECO):
+            record =  produtoPrecoBalanca(
+                ITEM_PRODUTO=itemsBalanca[0],
+                QTDE = 1,
+                PRECO_TOTAL = float(filtro.CODIGO[
+                    dadosBalanca.POSICAO_PRECO[0]: dadosBalanca.POSICAO_PRECO[1]
+                    ]) / 100
+                )
 
         return record
 
@@ -201,6 +218,26 @@ class produto:
                     TOTAL=round(float(rec.PRECO_BALCAO) * itemCodigoBalanca.QTDE, 2),
                     ID_TRIBUTO=rec.ID_TRIBUTO,
                     QTDE_FRACIONADA=self.qBase.isFamiliaBalanca(rec.ID_FAMILIA) if isinstance(rec.ID_FAMILIA, int) else False,
+                    ID_FAMILIA = rec.ID_FAMILIA
+                )
+            ]
+
+            return lista
+
+        elif isinstance(itemCodigoBalanca, produtoPrecoBalanca):
+            rec = itemCodigoBalanca.ITEM_PRODUTO
+
+            lista = [
+                itemPedidoCaixa(
+                    NUMERO_PEDIDO=0,
+                    NUMERO_ITEM=0,
+                    ID_PRODUTO=rec.ID_PRODUTO,
+                    DESCRICAO_PRODUTO=rec.DESCRICAO_PRODUTO,
+                    QTDE=itemCodigoBalanca.QTDE,
+                    PRECO=itemCodigoBalanca.PRECO_TOTAL,
+                    TOTAL=itemCodigoBalanca.PRECO_TOTAL,
+                    ID_TRIBUTO=rec.ID_TRIBUTO,
+                    QTDE_FRACIONADA=False,
                     ID_FAMILIA = rec.ID_FAMILIA
                 )
             ]
