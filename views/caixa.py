@@ -76,23 +76,24 @@ class Caixa:
                 VALOR_FECHAMENTO=float(item.VALOR_FECHAMENTO)
                 if item.VALOR_FECHAMENTO is not None
                 else 0.00,
-                USUARIO=await self.getUsuario(item.ID_USUARIO),
-                DATA_FECHAMENTO=await self.buscaFechamento(item.ID_ABERTURA),
-                ADMINISTRADOR=await self.getAdmin(item.ID_USUARIO)
+                USUARIO=self.getUsuarioCaixa(item.ID_USUARIO)[0],
+                DATA_FECHAMENTO=self.buscaFechamento(item.ID_ABERTURA),
+                ADMINISTRADOR=self.getAdmin(item.ID_USUARIO),
+                USUARIO_CAIXA=self.getUsuarioCaixa(item.ID_USUARIO)[1]
             ).__dict__
             for item in query
         ]
 
         return self.qBase.toRoute(retorno, 200)
 
-    async def getAdmin(self, ID_USUARIO: int) -> bool:
+    def getAdmin(self, ID_USUARIO: int) -> bool:
         admin = ctx.session.query(ctx.mapUSUARIO).filter(
             ctx.mapUSUARIO.ID_USUARIO == ID_USUARIO
         ).first().TIPO_USUARIO == 1
 
         return admin
 
-    async def getUsuario(self, ID_USUARIO) -> str:
+    def getUsuario(self, ID_USUARIO) -> str:
         NOME_USUARIO = (
             ctx.session.query(ctx.mapUSUARIO)
             .filter(ctx.mapUSUARIO.ID_USUARIO == ID_USUARIO)
@@ -101,8 +102,23 @@ class Caixa:
         )
 
         return NOME_USUARIO
+    
+    def getUsuarioCaixa(self, ID_USUARIO) -> tuple:
+        u = ctx.mapUSUARIO
 
-    async def buscaFechamento(self, idAbertura):
+        query = ctx.session.query(
+            u.NOME_USUARIO,
+            u.USUARIO_CAIXA
+        ).filter(
+            u.ID_USUARIO == ID_USUARIO
+        ).all()
+
+        return (
+            query[0].NOME_USUARIO,
+            query[0].USUARIO_CAIXA
+        )
+
+    def buscaFechamento(self, idAbertura):
         f = ctx.mapFechamentoCaixa
 
         rec = ctx.session.query(f).filter(f.ID_ABERTURA == idAbertura).all()
@@ -204,9 +220,10 @@ class Caixa:
             VALOR_FECHAMENTO=float(rec.VALOR_FECHAMENTO)
             if rec.VALOR_FECHAMENTO is not None
             else 0,
-            USUARIO=await self.getUsuario(rec.ID_USUARIO),
-            DATA_FECHAMENTO=await self.buscaFechamento(rec.ID_ABERTURA),
-            ADMINISTRADOR=await self.getAdmin(rec.ID_USUARIO)
+            USUARIO=self.getUsuario(rec.ID_USUARIO),
+            DATA_FECHAMENTO=self.buscaFechamento(rec.ID_ABERTURA),
+            ADMINISTRADOR=self.getAdmin(rec.ID_USUARIO),
+            USUARIO_CAIXA=self.getUsuarioCaixa(rec.ID_USUARIO)[1]
         )
 
         return retorno
@@ -278,7 +295,7 @@ class Caixa:
 
         return retorno
 
-    async def calcula_Totais_Por_Forma_Pagto(self, filtro: filtroFormasPagtoCaixa) -> totaisPorFormaPagto:
+    def calcula_Totais_Por_Forma_Pagto(self, filtro: filtroFormasPagtoCaixa) -> totaisPorFormaPagto:
         p = ctx.mapPedido
         pg = ctx.mapPedidoPagamento
         s = ctx.mapSangria
@@ -313,7 +330,7 @@ class Caixa:
 
         recTroco = descontos_e_Troco[0]
 
-        totalGeral = await self.get_Total_Geral_Caixa(filtro)
+        totalGeral = self.get_Total_Geral_Caixa(filtro)
 
         valorAbertura = ctx.session.query(a.VALOR_ABERTURA).filter(
             a.ID_ABERTURA == filtro.ID_CAIXA
@@ -394,9 +411,9 @@ class Caixa:
 
         return retorno
 
-    async def get_Totais_Por_Forma_Pagto(self, filtro: filtroFormasPagtoCaixa):
+    def get_Totais_Por_Forma_Pagto(self, filtro: filtroFormasPagtoCaixa):
         
-        retorno = await self.calcula_Totais_Por_Forma_Pagto(filtro)
+        retorno = self.calcula_Totais_Por_Forma_Pagto(filtro)
 
         return self.qBase.toRoute(retorno.__dict__, 200)
 
@@ -415,7 +432,7 @@ class Caixa:
 
         return len(abertura) > 0 and len(fechamento) == 0
 
-    async def listaPagamentosPorForma(self, filtro: filtroFormasPagtoCaixa):
+    def listaPagamentosPorForma(self, filtro: filtroFormasPagtoCaixa):
         p = ctx.mapPedido
         pg = ctx.mapPedidoPagamento
 
@@ -566,7 +583,7 @@ class Caixa:
 
         return retorno
 
-    async def get_Total_Geral_Caixa(self, filtro: filtroFormasPagtoCaixa) -> float:
+    def get_Total_Geral_Caixa(self, filtro: filtroFormasPagtoCaixa) -> float:
         p = ctx.mapPedido
         pg = ctx.mapPedidoPagamento
         s = ctx.mapSangria
@@ -1159,7 +1176,7 @@ class Caixa:
         periodo = await self.getPeriodo_e_Usuario(filtro.ID_CAIXA)
 
         for item in formasPagto:
-            totais = await self.calcula_Totais_Por_Forma_Pagto(
+            totais = self.calcula_Totais_Por_Forma_Pagto(
                 filtroFormasPagtoCaixa(
                     ID_CAIXA=filtro.ID_CAIXA,
                     FORMA_PAGTO=item.DESCRICAO_FORMA,

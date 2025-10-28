@@ -451,5 +451,20 @@ class produto:
 
         return lista
 
+    async def getPrecoBebidaQuente(self, filtro: getProduto) -> float:
+        p = ctx.mapProduto
+
+        query = ctx.session.query(
+            p.ID_PRODUTO,
+            p.PRECO_DELIVERY
+        ).filter(
+            p.ID_PRODUTO == filtro.ID_PRODUTO
+        ).first()
+
+        if query:
+            return float(query.PRECO_DELIVERY)
+
+        return 0.0
+
     def __del__(self):
         ctx.session.close_all()

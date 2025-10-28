@@ -270,6 +270,7 @@ async def listaSangria(filtro: filtroSangria):
 def gravaSangria(dados: sangria):
     _sangria = Sangria()
     retorno = None
+
     try:
         retorno = _sangria.gravaSangria(dados)
     except Exception as ex:
@@ -325,11 +326,11 @@ async def busca_Formas_de_Pagto_no_Caixa(filtro: filtroFormasPagtoCaixa):
 
 
 @router.get("/get_Totais_Por_Forma_Pagto")
-async def get_Totais_Por_Forma_Pagto(filtro: filtroFormasPagtoCaixa):
+def get_Totais_Por_Forma_Pagto(filtro: filtroFormasPagtoCaixa):
     _caixa = Caixa()
     retorno = None
     try:
-        retorno = await _caixa.get_Totais_Por_Forma_Pagto(filtro)
+        retorno = _caixa.get_Totais_Por_Forma_Pagto(filtro)
     except Exception as ex:
         raise ex
     finally:
@@ -354,12 +355,12 @@ async def verificaCaixaAberto(filtro: filtroFormasPagtoCaixa):
 
 
 @router.get("/listaPagamentosPorForma")
-async def listaPagamentosPorForma(filtro: filtroFormasPagtoCaixa):
+def listaPagamentosPorForma(filtro: filtroFormasPagtoCaixa):
     _caixa = Caixa()
     retorno = None
 
     try:
-        retorno = await _caixa.listaPagamentosPorForma(filtro)
+        retorno = _caixa.listaPagamentosPorForma(filtro)
     except Exception as ex:
         raise ex
     finally:
@@ -1235,6 +1236,22 @@ def confereEstoque(items: List[produtoIDQtde]):
 
     try:
         retorno = ped.confereEstoque(items)
+    except Exception as ex:
+        raise ex
+
+    finally:
+        del ped
+
+    return retorno
+
+@router.get('/getPrecoBebidaQuente')
+async def getPrecoBebidaQuente(filtro: getProduto):
+    ped = produto()
+
+    retorno = 0.00    
+
+    try:
+        retorno = await ped.getPrecoBebidaQuente(filtro)
     except Exception as ex:
         raise ex
 

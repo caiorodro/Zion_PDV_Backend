@@ -84,7 +84,7 @@ class Sangria:
     async def verificaSeHaDinheiroNoCaixa(self, ID_CAIXA: int, VALOR_SANGRIA: float) -> bool:
         cx = Caixa()
 
-        totais = await cx.calcula_Totais_Por_Forma_Pagto(
+        totais = cx.calcula_Totais_Por_Forma_Pagto(
             filtroFormasPagtoCaixa(
                 ID_CAIXA=ID_CAIXA,
                 FORMA_PAGTO="DINHEIRO",

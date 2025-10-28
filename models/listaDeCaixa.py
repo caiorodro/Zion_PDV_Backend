@@ -8,3 +8,4 @@ class listaDeCaixa(BaseModel):
     USUARIO: str
     DATA_FECHAMENTO: str
     ADMINISTRADOR: bool
+    USUARIO_CAIXA: int

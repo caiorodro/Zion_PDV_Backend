@@ -78,6 +78,7 @@ tb_usuario = Table(
     Column("EMAIL_USUARIO", String(150), nullable=True),
     Column("USUARIO_ATIVO", Integer, nullable=True),
     Column("TIPO_USUARIO", Integer, nullable=True),
+    Column("USUARIO_CAIXA", Integer, nullable=True)
 )
 
 tb_produto = Table(
@@ -88,6 +89,7 @@ tb_produto = Table(
     Column("CODIGO_PRODUTO_PDV", String(25), nullable=True),
     Column("DESCRICAO_PRODUTO", String(150), nullable=True),
     Column("PRECO_BALCAO", Numeric(12, 4), nullable=True),
+    Column('PRECO_DELIVERY', Numeric(12,4), nullable=True),
     Column("PRODUTO_ATIVO", Integer, nullable=True),
     Column("ID_TRIBUTO", Integer, nullable=False),
     Column("CODIGO_ZE", String(20), nullable=True),
