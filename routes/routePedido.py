@@ -32,6 +32,7 @@ from models.filtroListaPedido import filtroListaPedido
 from models.filtroListaProduto import filtroListaProduto
 from models.filtroNFCe import filtroNFCe
 from models.filtroNumeroPedido import filtroNumeroPedido
+from models.filtroProduto import filtroProduto
 from models.filtroPedido import filtroPedido
 from models.filtroReforco import filtroReforco
 from models.filtroSangria import filtroSangria
@@ -1252,6 +1253,22 @@ async def getPrecoBebidaQuente(filtro: getProduto):
 
     try:
         retorno = await ped.getPrecoBebidaQuente(filtro)
+    except Exception as ex:
+        raise ex
+
+    finally:
+        del ped
+
+    return retorno
+
+@router.get('/getProductImage')
+async def getProductImage(filtro: filtroProduto):
+    ped = produto()
+
+    retorno = ''
+
+    try:
+        retorno = await ped.getProductImage(filtro)
     except Exception as ex:
         raise ex
 

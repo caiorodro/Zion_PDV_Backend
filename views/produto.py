@@ -1,3 +1,4 @@
+import base64
 from decimal import Decimal
 import json
 import os
@@ -134,7 +135,7 @@ class produto:
             precoAtacado(PRECO=precoBalcao).__dict__, 200
         )
 
-    async def getItemBalanca(self, filtro: filtroCodigoProduto) -> produtoBalanca | produtoPrecoBalanca | None:
+    def getItemBalanca(self, filtro: filtroCodigoProduto) -> produtoBalanca | produtoPrecoBalanca | None:
 
         dadosBalanca = itemBalanca(
             TAMANHO_CODIGO_BARRAS=13,
@@ -199,13 +200,15 @@ class produto:
                 )
 
         return record
-
+    
     async def buscaProdutoPorCodigo(self, filtro: filtroCodigoProduto) -> List[itemPedidoCaixa]:
 
-        itemCodigoBalanca = await self.getItemBalanca(filtro)
+        itemCodigoBalanca = self.getItemBalanca(filtro)
 
         if isinstance(itemCodigoBalanca, produtoBalanca):
             rec = itemCodigoBalanca.ITEM_PRODUTO
+
+            familiaBalanca = self.qBase.isFamiliaBalanca(rec.ID_FAMILIA) if isinstance(rec.ID_FAMILIA, int) else False
 
             lista = [
                 itemPedidoCaixa(
@@ -217,8 +220,8 @@ class produto:
                     PRECO=float(rec.PRECO_BALCAO),
                     TOTAL=round(float(rec.PRECO_BALCAO) * itemCodigoBalanca.QTDE, 2),
                     ID_TRIBUTO=rec.ID_TRIBUTO,
-                    QTDE_FRACIONADA=self.qBase.isFamiliaBalanca(rec.ID_FAMILIA) if isinstance(rec.ID_FAMILIA, int) else False,
-                    ID_FAMILIA = rec.ID_FAMILIA
+                    QTDE_FRACIONADA=familiaBalanca,
+                    ID_FAMILIA=rec.ID_FAMILIA
                 )
             ]
 
@@ -262,6 +265,15 @@ class produto:
         if row.first():
             rec = row.first()
 
+            preco = self.getPrecoAtacado(
+                getProduto(
+                    ID_PRODUTO=rec.ID_PRODUTO,
+                    QTDE=filtro.QTDE
+                )
+            )
+
+            familiaBalanca = self.qBase.isFamiliaBalanca(rec.ID_FAMILIA) if isinstance(rec.ID_FAMILIA, int) else False
+
             lista = [
                 itemPedidoCaixa(
                     NUMERO_PEDIDO=0,
@@ -269,15 +281,10 @@ class produto:
                     ID_PRODUTO=rec.ID_PRODUTO,
                     DESCRICAO_PRODUTO=rec.DESCRICAO_PRODUTO,
                     QTDE=filtro.QTDE,
-                    PRECO=self.getPrecoAtacado(
-                        getProduto(
-                            ID_PRODUTO=rec.ID_PRODUTO,
-                            QTDE=filtro.QTDE
-                        )
-                    ),
+                    PRECO=preco,
                     TOTAL=rec.PRECO_BALCAO,
                     ID_TRIBUTO=rec.ID_TRIBUTO,
-                    QTDE_FRACIONADA=self.qBase.isFamiliaBalanca(rec.ID_FAMILIA) if isinstance(rec.ID_FAMILIA, int) else False
+                    QTDE_FRACIONADA=familiaBalanca
                 )
             ]
 
@@ -295,6 +302,15 @@ class produto:
             if row.first():
                 rec = row.first()
 
+                preco = self.getPrecoAtacado(
+                    getProduto(
+                        ID_PRODUTO=rec.ID_PRODUTO,
+                        QTDE=filtro.QTDE
+                    )
+                )
+
+                familiaBalanca = self.qBase.isFamiliaBalanca(rec.ID_FAMILIA) if isinstance(rec.ID_FAMILIA, int) else False
+
                 lista = [
                     itemPedidoCaixa(
                         NUMERO_PEDIDO=0,
@@ -302,15 +318,10 @@ class produto:
                         ID_PRODUTO=rec.ID_PRODUTO,
                         DESCRICAO_PRODUTO=rec.DESCRICAO_PRODUTO,
                         QTDE=filtro.QTDE,
-                        PRECO=self.getPrecoAtacado(
-                            getProduto(
-                                ID_PRODUTO=rec.ID_PRODUTO,
-                                QTDE=filtro.QTDE
-                            )
-                        ),
+                        PRECO=preco,
                         TOTAL=rec.PRECO_BALCAO,
                         ID_TRIBUTO=rec.ID_TRIBUTO,
-                        QTDE_FRACIONADA=self.qBase.isFamiliaBalanca(rec.ID_FAMILIA) if isinstance(rec.ID_FAMILIA, int) else False
+                        QTDE_FRACIONADA=familiaBalanca
                     )
                 ]
 
@@ -325,6 +336,15 @@ class produto:
             if len(pesquisa) == 1:
                 rec = pesquisa[0]
 
+                preco = self.getPrecoAtacado(
+                    getProduto(
+                        ID_PRODUTO=rec.ID_PRODUTO,
+                        QTDE=filtro.QTDE
+                    )
+                )
+
+                familiaBalanca = self.qBase.isFamiliaBalanca(rec.ID_FAMILIA) if isinstance(rec.ID_FAMILIA, int) else False
+
                 lista = [
                     itemPedidoCaixa(
                         NUMERO_PEDIDO=0,
@@ -332,15 +352,10 @@ class produto:
                         ID_PRODUTO=rec.ID_PRODUTO,
                         DESCRICAO_PRODUTO=rec.DESCRICAO_PRODUTO,
                         QTDE=filtro.QTDE,
-                        PRECO=self.getPrecoAtacado(
-                            getProduto(
-                                ID_PRODUTO=rec.ID_PRODUTO,
-                                QTDE=filtro.QTDE
-                            )
-                        ),
+                        PRECO=preco,
                         TOTAL=rec.PRECO_BALCAO,
                         ID_TRIBUTO=rec.ID_TRIBUTO,
-                        QTDE_FRACIONADA=self.qBase.isFamiliaBalanca(rec.ID_FAMILIA) if isinstance(rec.ID_FAMILIA, int) else False
+                        QTDE_FRACIONADA=familiaBalanca
                     )
                 ]
 
@@ -465,6 +480,25 @@ class produto:
             return float(query.PRECO_DELIVERY)
 
         return 0.0
+    
+    async def getProductImage(self, filtro: filtroProduto) -> str:
+        p = ctx.mapProduto
+
+        record = ctx.session.query(
+            p.ID_PRODUTO,
+            p.FOTO_PRODUTO
+        ).filter(
+            p.ID_PRODUTO == filtro.ID_PRODUTO
+        ).first()
+
+        fotoValue = record.FOTO_PRODUTO
+
+        if fotoValue is None:
+            return ''
+        
+        retorno = base64.b64encode(fotoValue).decode('utf-8')
+
+        return retorno
 
     def __del__(self):
         ctx.session.close_all()

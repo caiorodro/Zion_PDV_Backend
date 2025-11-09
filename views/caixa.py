@@ -58,13 +58,25 @@ class Caixa:
         ontem = hoje + relativedelta(days=-1)
 
         a = ctx.mapAberturaCaixa
+        u = ctx.mapUSUARIO
 
         _filters = [
             a.DATA_ABERTURA >= ontem, 
-            a.VALOR_FECHAMENTO == 0
+            a.VALOR_FECHAMENTO == 0,
+            a.ID_USUARIO == u.ID_USUARIO
         ]
 
-        query = ctx.session.query(a).filter(*_filters).all()
+        query = ctx.session.query(
+            a.ID_ABERTURA,
+            a.DATA_ABERTURA,
+            a.VALOR_ABERTURA,
+            a.VALOR_FECHAMENTO,
+            u.NOME_USUARIO,
+            u.TIPO_USUARIO,
+            u.USUARIO_CAIXA
+        ).filter(
+            *_filters
+        ).all()
 
         retorno = [
             listaDeCaixa(
@@ -74,12 +86,12 @@ class Caixa:
                 else "",
                 VALOR_ABERTURA=float(item.VALOR_ABERTURA),
                 VALOR_FECHAMENTO=float(item.VALOR_FECHAMENTO)
-                if item.VALOR_FECHAMENTO is not None
-                else 0.00,
-                USUARIO=self.getUsuarioCaixa(item.ID_USUARIO)[0],
+                    if item.VALOR_FECHAMENTO is not None
+                    else 0.00,
+                USUARIO=item.NOME_USUARIO,
                 DATA_FECHAMENTO=self.buscaFechamento(item.ID_ABERTURA),
-                ADMINISTRADOR=self.getAdmin(item.ID_USUARIO),
-                USUARIO_CAIXA=self.getUsuarioCaixa(item.ID_USUARIO)[1]
+                ADMINISTRADOR=item.TIPO_USUARIO == 1,
+                USUARIO_CAIXA=item.USUARIO_CAIXA == 1
             ).__dict__
             for item in query
         ]

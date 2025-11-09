@@ -7,8 +7,10 @@ from sqlalchemy import (
     Numeric,
     String,
     Table,
+    BLOB,
     create_engine,
 )
+
 from sqlalchemy.orm import mapper, sessionmaker
 
 from base.mapTable import (
@@ -93,7 +95,8 @@ tb_produto = Table(
     Column("PRODUTO_ATIVO", Integer, nullable=True),
     Column("ID_TRIBUTO", Integer, nullable=False),
     Column("CODIGO_ZE", String(20), nullable=True),
-    Column('ID_FAMILIA', Integer, nullable=True)
+    Column('ID_FAMILIA', Integer, nullable=True),
+    Column('FOTO_PRODUTO', BLOB, nullable=True)
 )
 
 tb_grade_produto = Table(

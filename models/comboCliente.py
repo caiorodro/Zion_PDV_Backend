@@ -1,7 +1,9 @@
-from pydantic import BaseModel
+from dataclasses import dataclass
+from typing import Optional
 
-class comboCliente(BaseModel):
+@dataclass
+class comboCliente:
     ID_CLIENTE: int
     NOME_CLIENTE: str
-    CPF: str
-    TELEFONE_CLIENTE: str
+    CPF: Optional[str] = None
+    TELEFONE_CLIENTE: Optional[str] = None
