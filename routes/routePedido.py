@@ -9,6 +9,7 @@ from base.authentication import authentication
 from base.checkDatabase import checkTables
 from cfg.config import Config
 from logs.manageLog import manageLog
+from models.produtoImage import produtoImage
 from models.aberturaCaixa import aberturaCaixa
 from models.Cliente_Endereco_Transporte import Cliente_Endereco_Transporte
 from models.conclusaoPagamento import conclusaoPagamento
@@ -40,10 +41,12 @@ from models.filtroTransporte import filtroTransporte
 from models.getProduto import getProduto
 from models.impressaoAvulsa import impressaoAvulsa
 from models.itemCaixa import itemCaixa
+from models.itemGrade import itemGrade
 from models.itemPedido import itemPedido
 from models.itemTributo import itemTributo
 from models.listaDePagamentos import listaDePagamentos
 from models.NFe_Finalizada import NFe_Finalizada
+from models.listaProduto import listaProduto
 from models.notaAutorizada import notaAutorizada
 from models.nsu import nsu
 from models.numeroItemPedido import numeroItemPedido
@@ -1269,6 +1272,54 @@ async def getProductImage(filtro: filtroProduto):
 
     try:
         retorno = await ped.getProductImage(filtro)
+    except Exception as ex:
+        raise ex
+
+    finally:
+        del ped
+
+    return retorno
+
+@router.get('/getAllProducts')
+async def getAllProducts() -> List[listaProduto]:
+    ped = produto()
+
+    retorno = []
+
+    try:
+        retorno = await ped.getAllProducts()
+    except Exception as ex:
+        raise ex
+
+    finally:
+        del ped
+
+    return retorno
+
+@router.get('/getItensGrade')
+async def getItensGrade() -> List[itemGrade]:
+    ped = produto()
+
+    retorno = []
+
+    try:
+        retorno = await ped.getItensGrade()
+    except Exception as ex:
+        raise ex
+
+    finally:
+        del ped
+
+    return retorno
+
+@router.get('/getImageProducts')
+async def getImageProducts() -> List[produtoImage]:
+    ped = produto()
+
+    retorno = []
+
+    try:
+        retorno = await ped.getImageProducts()
     except Exception as ex:
         raise ex
 

@@ -14,11 +14,13 @@ from models.filtroDescricaoProduto import filtroDescricaoProduto
 from models.filtroProduto import filtroProduto
 from models.getProduto import getProduto
 from models.ItemBalanca import itemBalanca
+from models.itemGrade import itemGrade
 from models.itemPedidoCaixa import itemPedidoCaixa
 from models.listaDeProduto import listaDeProduto
 from models.listaProduto import listaProduto
 from models.precoAtacado import precoAtacado
 from models.produtoBalanca import produtoBalanca
+from models.produtoImage import produtoImage
 from models.produtoPrecoBalanca import produtoPrecoBalanca
 
 class produto:
@@ -391,6 +393,8 @@ class produto:
         lista = [
             listaProduto(
                 ID_PRODUTO=row.ID_PRODUTO,
+                CODIGO_PRODUTO=row.CODIGO_PRODUTO if row.CODIGO_PRODUTO is not None else '',
+                CODIGO_EAN=[row.CODIGO_PRODUTO_PDV] if row.CODIGO_PRODUTO_PDV is not None else [],
                 DESCRICAO_PRODUTO=row.DESCRICAO_PRODUTO,
                 PRECO_BALCAO=self.getPrecoAtacado(
                     getProduto(
@@ -398,12 +402,14 @@ class produto:
                         QTDE=filtro.QTDE
                     )
                 ) if filtro.QTDE > 1 else float(row.PRECO_BALCAO),
+                PRECO_ATACADO=float(row.PRECO_ATACADO) if row.PRECO_ATACADO is not None else 0.00,
                 ID_TRIBUTO=row.ID_TRIBUTO,
                 SALDO=0,
                 CODIGO_ZE="" if row.CODIGO_ZE is None else row.CODIGO_ZE,
                 PRODUTO_ATIVO=row.PRODUTO_ATIVO,
                 QTDE_FRACIONADA=self.qBase.isFamiliaBalanca(row.ID_FAMILIA) if isinstance(row.ID_FAMILIA, int) else False,
-                ID_FAMILIA=row.ID_FAMILIA
+                ID_FAMILIA=row.ID_FAMILIA,
+                QTDE=1
             )
             for row in query
         ]
@@ -497,6 +503,116 @@ class produto:
             return ''
         
         retorno = base64.b64encode(fotoValue).decode('utf-8')
+
+        return retorno
+
+    async def getAllProducts(self) -> List[listaProduto]:
+        lista = []
+
+        p = ctx.mapProduto
+
+        filters = [
+            p.PRECO_BALCAO > 0.00,
+            p.PRODUTO_ATIVO == 1
+        ]
+
+        query = ctx.session.query(
+            p.ID_PRODUTO,
+            p.CODIGO_PRODUTO,
+            p.CODIGO_PRODUTO_PDV,
+            p.DESCRICAO_PRODUTO,
+            p.PRECO_BALCAO,
+            p.PRECO_ATACADO,
+            p.ID_TRIBUTO,
+            p.CODIGO_ZE,
+            p.PRODUTO_ATIVO,
+            p.ID_FAMILIA
+        ).filter(*filters).all()
+
+        lista = [
+            listaProduto(
+                ID_PRODUTO=row.ID_PRODUTO,
+                CODIGO_PRODUTO=row.CODIGO_PRODUTO if row.CODIGO_PRODUTO is not None else '',
+                CODIGO_EAN=[row.CODIGO_PRODUTO_PDV] if row.CODIGO_PRODUTO_PDV is not None else [],
+                DESCRICAO_PRODUTO=row.DESCRICAO_PRODUTO,
+                PRECO_BALCAO=float(row.PRECO_BALCAO),
+                PRECO_ATACADO=float(row.PRECO_ATACADO) if row.PRECO_ATACADO is not None else 0.00,
+                ID_TRIBUTO=row.ID_TRIBUTO,
+                SALDO=0,
+                CODIGO_ZE="" if row.CODIGO_ZE is None else row.CODIGO_ZE,
+                PRODUTO_ATIVO=row.PRODUTO_ATIVO,
+                QTDE_FRACIONADA=self.qBase.isFamiliaBalanca(row.ID_FAMILIA) if isinstance(row.ID_FAMILIA, int) else False,
+                ID_FAMILIA=row.ID_FAMILIA,
+                QTDE=1
+            )
+            for row in query
+        ]
+
+        for item in lista:
+            item.CODIGO_EAN.extend(
+                self.getEANs(
+                    filtroProduto(ID_PRODUTO=item.ID_PRODUTO)
+                )
+            )
+
+        return lista
+    
+    def getEANs(self, filtro: filtroProduto) -> List[str]:
+        p = ctx.mapCodigoBarrasProduto
+
+        query = ctx.session.query(p).filter(
+            p.ID_PRODUTO == filtro.ID_PRODUTO
+        ).all()
+
+        lista = [
+            row.CODIGO_BARRAS_PRODUTO.strip() if row.CODIGO_BARRAS_PRODUTO is not None else ''
+            for row in query
+            if row.CODIGO_BARRAS_PRODUTO is not None
+        ]
+
+        return lista
+
+    async def getItensGrade(self) -> List[itemGrade]:
+        lista = []
+
+        g = ctx.mapGradePreco
+
+        query = ctx.session.query(
+            g.ID_PRODUTO,
+            g.QTDE_INICIAL,
+            g.QTDE_FINAL,
+            g.PRECO_VENDA
+        ).all()
+
+        lista = [
+            itemGrade(
+                ID_PRODUTO=row.ID_PRODUTO,
+                QTDE_INICIAL=int(row.QTDE_INICIAL),
+                QTDE_FINAL=int(row.QTDE_FINAL),
+                PRECO_GRADE=float(row.PRECO_VENDA)
+            )
+            for row in query
+        ]
+
+        return lista
+
+    async def getImageProducts(self) -> List[produtoImage]:
+        p = ctx.mapProduto
+
+        query = ctx.session.query(
+            p.ID_PRODUTO,
+            p.FOTO_PRODUTO
+        ).filter(
+            p.FOTO_PRODUTO != None
+        ).all()
+
+        retorno = [
+            produtoImage(
+                ID_PRODUTO=record.ID_PRODUTO,
+                IMAGE_DATA=base64.b64encode(record.FOTO_PRODUTO).decode('utf-8')
+            )
+            for record in query
+        ]
 
         return retorno
 

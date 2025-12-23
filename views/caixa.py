@@ -1157,6 +1157,9 @@ class Caixa:
             f.DESCRICAO_FORMA == filtro.FORMA_PAGTO
         ).first()
 
+        if formaPagto is None:
+            return 0.00
+
         taxaPagamento = formaPagto.TAXA_PAGAMENTO
 
         if taxaPagamento is None:

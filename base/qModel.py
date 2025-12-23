@@ -92,6 +92,7 @@ tb_produto = Table(
     Column("DESCRICAO_PRODUTO", String(150), nullable=True),
     Column("PRECO_BALCAO", Numeric(12, 4), nullable=True),
     Column('PRECO_DELIVERY', Numeric(12,4), nullable=True),
+    Column('PRECO_ATACADO', Numeric(12,4), nullable=True),
     Column("PRODUTO_ATIVO", Integer, nullable=True),
     Column("ID_TRIBUTO", Integer, nullable=False),
     Column("CODIGO_ZE", String(20), nullable=True),
@@ -494,7 +495,7 @@ tb_codigo_barras_produto = Table(
     metadata,
     Column("ID_BARRAS", Integer, primary_key=True, autoincrement="auto"),
     Column("ID_PRODUTO", Integer, nullable=True),
-    Column("CODIGO_BARRAS", String(30), nullable=True),
+    Column("CODIGO_BARRAS_PRODUTO", String(30), nullable=True),
 )
 
 tb_tributo = Table(

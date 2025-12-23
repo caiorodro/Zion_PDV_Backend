@@ -1,8 +1,0 @@
-pdm install
-pdm add -d pyinstaller
-pdm venv activate
-
-[tool.pdm.scripts]
-pyinstaller ./main.py --noconfirm --onefile --hidden-import=sqlalchemy.sql.functions.func --hidden-import=pysqlite2 --hidden-import=MySQLdb --hidden-import=psycopg2 --hidden-import=pymysql --hidden-import=_bootlocale
-
-pdm run build-exe
