@@ -1,10 +1,11 @@
 from typing import List
 
-from pydantic import BaseModel
+from dataclasses import dataclass
 
 from models.FORMAS_PAGTO_IMPRESSAO import FORMAS_PAGTO_IMPRESSAO
 
-class dadosNFCe(BaseModel):
+@dataclass
+class dadosNFCe:
     NUMERO_COMANDA: int
     CPF: str
     IE: str

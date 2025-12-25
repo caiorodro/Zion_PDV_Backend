@@ -1,5 +1,6 @@
-from pydantic import BaseModel
+from dataclasses import dataclass
 
-class filtroProdutoQtde(BaseModel):
+@dataclass
+class filtroProdutoQtde:
     ID_PRODUTO: int
     QTDE: int

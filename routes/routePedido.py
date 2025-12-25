@@ -106,7 +106,7 @@ async def listFormaPagto():
     result = None
 
     try:
-        result = await _pedido.listaFormaPagto()
+        result = await _pedido.lista_FormaPagto()
     except Exception as ex:
         raise ex
     finally:

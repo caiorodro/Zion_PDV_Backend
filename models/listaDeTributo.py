@@ -1,5 +1,6 @@
-from pydantic import BaseModel
+from dataclasses import dataclass
 
-class listaDeTributo(BaseModel):
+@dataclass
+class listaDeTributo:
     ID_TRIBUTO: int
     NOME_OPERACAO: str

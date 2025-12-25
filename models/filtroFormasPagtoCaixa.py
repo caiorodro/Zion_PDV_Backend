@@ -1,6 +1,7 @@
-from pydantic import BaseModel
+from dataclasses import dataclass
 
-class filtroFormasPagtoCaixa(BaseModel):
+@dataclass
+class filtroFormasPagtoCaixa:
     ID_CAIXA: int
     FORMA_PAGTO: str
     NUMERO_IMPRESSORA: int

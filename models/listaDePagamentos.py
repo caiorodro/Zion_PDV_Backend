@@ -1,6 +1,7 @@
-from pydantic import BaseModel
+from dataclasses import dataclass
 
-class listaDePagamentos(BaseModel):
+@dataclass
+class listaDePagamentos:
     NUMERO_PEDIDO: int
     DATA_HORA: str
     STATUS_PEDIDO: str

@@ -1,5 +1,6 @@
-from pydantic import BaseModel
+from dataclasses import dataclass
 
-class itemTributo(BaseModel):
+@dataclass
+class itemTributo:
     NUMERO_ITEM: int
     ID_TRIBUTO: int

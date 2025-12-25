@@ -367,7 +367,7 @@ class Caixa:
                 totaisPorFormaPagto(
                     FORMA_PAGTO=item.FORMA_PAGTO,
                     TROCO=float(recTroco.TROCO) if recTroco.TROCO is not None else 0.00,
-                    TOTAL_PAGTO=item.TOTAL_PAGO - recTroco.TROCO,
+                    TOTAL_PAGTO=float(item.TOTAL_PAGO) - float(recTroco.TROCO),
                     DESCONTO=float(recTroco.DESCONTO)
                     if recTroco.DESCONTO is not None
                     else 0.00,

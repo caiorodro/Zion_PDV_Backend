@@ -1,6 +1,7 @@
-from pydantic import BaseModel
+from dataclasses import dataclass
 
-class itemPedido(BaseModel):
+@dataclass
+class itemPedido:
     NUMERO_ITEM: int
     NUMERO_PEDIDO: int
     ID_PRODUTO: int

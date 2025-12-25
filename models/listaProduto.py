@@ -1,7 +1,8 @@
-from pydantic import BaseModel
 from typing import List
+from dataclasses import dataclass
 
-class listaProduto(BaseModel):
+@dataclass
+class listaProduto:
     ID_PRODUTO: int
     CODIGO_PRODUTO: str
     CODIGO_EAN: List[str]

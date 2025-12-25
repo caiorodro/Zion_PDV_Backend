@@ -1,6 +1,7 @@
-from pydantic import BaseModel
+from dataclasses import dataclass
 
-class dadosFechamento(BaseModel):
+@dataclass
+class dadosFechamento:
     ID_FECHAMENTO: int
     FORMA_PAGTO: str
     DATA_FECHAMENTO: str

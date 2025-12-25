@@ -1,11 +1,11 @@
 from typing import List
 
-from pydantic import BaseModel
+from dataclasses import dataclass
 
 from models.dadosCliente import dadosCliente
 from models.dadosEndereco import dadosEndereco
 
-
-class editCliente(BaseModel):
+@dataclass
+class editCliente:
     cliente: dadosCliente
     endereco: List[dadosEndereco]

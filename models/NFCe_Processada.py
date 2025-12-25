@@ -1,6 +1,7 @@
-from pydantic import BaseModel
+from dataclasses import dataclass
 
-class NFCe_Processada(BaseModel):
+@dataclass
+class NFCe_Processada:
     NUMERO_PEDIDO: int
     NUMERO_NF: int
     PROTOCOLO_AUTORIZACAO: str

@@ -1,11 +1,11 @@
 from typing import List
 
-from pydantic import BaseModel
-
 from models.FORMAS_PAGTO_IMPRESSAO import FORMAS_PAGTO_IMPRESSAO
 
+from dataclasses import dataclass
 
-class impressaoPedidoBalcao(BaseModel):
+@dataclass
+class impressaoPedidoBalcao:
     CPF: str
     NUMERO_COMANDA: int
     NUMERO_COMANDA_ATENDIMENTO: int

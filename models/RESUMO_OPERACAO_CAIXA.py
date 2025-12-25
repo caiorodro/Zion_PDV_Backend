@@ -1,7 +1,8 @@
 from typing import List
-from pydantic import BaseModel
+from dataclasses import dataclass
 
-class TOTAIS_CAIXA_FORMA_PAGTO(BaseModel):
+@dataclass
+class TOTAIS_CAIXA_FORMA_PAGTO:
     FORMA_PAGTO: str
     ABERTURA: float 
     VALOR: float 
@@ -13,32 +14,37 @@ class TOTAIS_CAIXA_FORMA_PAGTO(BaseModel):
     VALOR_FECHAMENTO: float 
     DIFERENCA: float 
 
-class TOTAIS_CAIXA_ORIGEM(BaseModel):
+@dataclass
+class TOTAIS_CAIXA_ORIGEM:
     ORIGEM: str 
     VALOR: float 
     DESCONTO: float 
     TOTAL: float 
 
-class TOTAIS_CAIXA_FORMA_PAGTO_ORIGEM(BaseModel):
+@dataclass
+class TOTAIS_CAIXA_FORMA_PAGTO_ORIGEM:
     ORIGEM: str 
     FORMA_PAGTO: str 
     VALOR: float 
     DESCONTO: float 
     TOTAL: float 
 
-class TOTAIS_SANGRIA(BaseModel):
+@dataclass
+class TOTAIS_SANGRIA:
     DATA_HORA: str 
     DESCRICAO: str 
     USUARIO: str 
     VALOR: float 
 
-class TOTAIS_REFORCO(BaseModel):
+@dataclass
+class TOTAIS_REFORCO:
     DATA_HORA: str 
     DESCRICAO: str 
     USUARIO: str 
     VALOR: float 
 
-class RESUMO_IMPRESSAO_CAIXA(BaseModel):
+@dataclass
+class RESUMO_IMPRESSAO_CAIXA:
     DATA1: str
     DATA2: str
     USUARIO: str

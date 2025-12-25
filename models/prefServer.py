@@ -1,6 +1,7 @@
-from pydantic import BaseModel
+from dataclasses import dataclass
 
-class prefServer(BaseModel):
+@dataclass
+class prefServer:
     SERVER: str
     PORT: int
     PORT_MYSQL: int

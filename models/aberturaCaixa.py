@@ -1,6 +1,7 @@
-from pydantic import BaseModel
+from dataclasses import dataclass
 
-class aberturaCaixa(BaseModel):
+@dataclass
+class aberturaCaixa:
     ID_ABERTURA: int
     DATA_ABERTURA: str
     ID_USUARIO: int

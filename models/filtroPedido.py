@@ -1,7 +1,8 @@
 from typing import List
-from pydantic import BaseModel
+from dataclasses import dataclass
 
-class filtroPedido(BaseModel):
+@dataclass
+class filtroPedido:
     FILTRO: str
     ORIGEM: str
     STATUS: List[int]

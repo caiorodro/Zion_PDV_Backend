@@ -1,6 +1,7 @@
-from pydantic import BaseModel
+from dataclasses import dataclass
 
-class dadosAbertura(BaseModel):
+@dataclass
+class dadosAbertura:
     ABERTURA: int
     SANGRIA: float
     REFORCO: float

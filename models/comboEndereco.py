@@ -1,6 +1,7 @@
-from pydantic import BaseModel
+from dataclasses import dataclass
 
-class comboEndereco(BaseModel):
+@dataclass
+class comboEndereco:
     ID_ENDERECO: int
     ENDERECO: str
     NUMERO_ENDERECO: str

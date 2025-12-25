@@ -1,4 +1,5 @@
-from pydantic import BaseModel
+from dataclasses import dataclass
 
-class precoAtacado(BaseModel):
+@dataclass
+class precoAtacado:
     PRECO: float

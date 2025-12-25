@@ -1,5 +1,6 @@
-from pydantic import BaseModel
+from dataclasses import dataclass
 
-class emissaoNFCe(BaseModel):
+@dataclass
+class emissaoNFCe:
     NUMERO_PEDIDO: int
     CPF: str

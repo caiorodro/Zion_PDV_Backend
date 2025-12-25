@@ -1,4 +1,5 @@
-from pydantic import BaseModel
+from dataclasses import dataclass
 
-class numeroItemPedido(BaseModel):
+@dataclass
+class numeroItemPedido:
     NUMERO_ITEM: int

@@ -1,5 +1,6 @@
-from pydantic import BaseModel
+from dataclasses import dataclass
 
-class filtroReforco(BaseModel):
+@dataclass
+class filtroReforco:
     DATA_REFORCO: str
     ID_CAIXA: int

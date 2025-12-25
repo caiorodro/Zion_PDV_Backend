@@ -1,5 +1,6 @@
-from pydantic import BaseModel
+from dataclasses import dataclass
 
-class filtroSangria(BaseModel):
+@dataclass
+class filtroSangria:
     DATA_SANGRIA: str
     ID_CAIXA: int

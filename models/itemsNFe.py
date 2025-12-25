@@ -1,6 +1,7 @@
-from pydantic import BaseModel
+from dataclasses import dataclass
 
-class itemsNFe(BaseModel):
+@dataclass
+class itemsNFe:
     NUMERO_ITEM: int
     DESCRICAO_PRODUTO: str
     QTDE: int

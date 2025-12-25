@@ -1,6 +1,7 @@
-from pydantic import BaseModel
+from dataclasses import dataclass
 
-class TOTAL_PEDIDO(BaseModel):
+@dataclass
+class TOTAL_PEDIDO:
     TOTAL_PRODUTOS: float
     VALOR_ADICIONAL: float
     VALOR_DESCONTO: float

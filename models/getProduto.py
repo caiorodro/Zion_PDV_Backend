@@ -1,5 +1,6 @@
-from pydantic import BaseModel
+from dataclasses import dataclass
 
-class getProduto(BaseModel):
+@dataclass
+class getProduto:
     ID_PRODUTO: int
     QTDE: float

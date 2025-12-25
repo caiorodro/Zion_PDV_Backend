@@ -1,4 +1,5 @@
-from pydantic import BaseModel
+from dataclasses import dataclass
 
-class fiscalCliente(BaseModel):
+@dataclass
+class fiscalCliente:
     CPF: str

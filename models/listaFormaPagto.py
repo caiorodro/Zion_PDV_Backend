@@ -1,5 +1,7 @@
-from pydantic import BaseModel
+from dataclasses import dataclass
 
-class listaFormaPagto(BaseModel):
+@dataclass
+class listaFormaPagto:
     ID_FORMA: int
     DESCRICAO_FORMA: str
+    TAXA_PAGAMENTO: float

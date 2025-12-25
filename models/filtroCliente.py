@@ -1,4 +1,5 @@
-from pydantic import BaseModel
+from dataclasses import dataclass
 
-class filtroCliente(BaseModel):
+@dataclass
+class filtroCliente:
     FILTRO: str

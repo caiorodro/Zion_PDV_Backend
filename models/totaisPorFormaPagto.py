@@ -1,6 +1,7 @@
-from pydantic import BaseModel
+from dataclasses import dataclass
 
-class totaisPorFormaPagto(BaseModel):
+@dataclass
+class totaisPorFormaPagto:
     FORMA_PAGTO: str
     TROCO: float
     TOTAL_PAGTO: float

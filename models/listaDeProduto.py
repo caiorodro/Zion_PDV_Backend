@@ -1,6 +1,7 @@
-from pydantic import BaseModel
+from dataclasses import dataclass
 
-class listaDeProduto(BaseModel):
+@dataclass
+class listaDeProduto:
     ID_PRODUTO: int
     DESCRICAO_PRODUTO: str
     PRECO_BALCAO: float

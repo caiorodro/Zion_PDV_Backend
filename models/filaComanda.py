@@ -1,6 +1,7 @@
-from pydantic import BaseModel
+from dataclasses import dataclass
 
-class filaComanda(BaseModel):
+@dataclass
+class filaComanda:
     ID_FILA: int
     NUMERO_COMANDA: int
     PROCESSADO: int

@@ -1,6 +1,7 @@
-from pydantic import BaseModel
+from dataclasses import dataclass
 
-class reforco(BaseModel):
+@dataclass
+class reforco:
     ID_REFORCO: int
     DATA_REFORCO: str
     DESCRICAO_REFORCO: str

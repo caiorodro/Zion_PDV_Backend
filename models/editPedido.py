@@ -1,7 +1,9 @@
 from typing import List
-from pydantic import BaseModel
 
-class editItemPedido(BaseModel):
+from dataclasses import dataclass
+
+@dataclass
+class editItemPedido:
     NUMERO_ITEM: int
     NUMERO_PEDIDO: int
     ID_PRODUTO: int
@@ -11,7 +13,8 @@ class editItemPedido(BaseModel):
     PRECO: float
     TOTAL: float
 
-class editPedidoPagamento(BaseModel):
+@dataclass
+class editPedidoPagamento:
     ID_PAGAMENTO: int
     NUMERO_PEDIDO: int
     FORMA_PAGTO: str
@@ -19,7 +22,8 @@ class editPedidoPagamento(BaseModel):
     VALOR_PAGO: float
     CODIGO_NSU: str
 
-class editPedido(BaseModel):
+@dataclass
+class editPedido:
     NUMERO_PEDIDO: int
     ID_CLIENTE: int
     CPF: str

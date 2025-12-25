@@ -1,6 +1,7 @@
-from pydantic import BaseModel
+from dataclasses import dataclass
 
-class dadosTransporte(BaseModel):
+@dataclass
+class dadosTransporte:
     ID_TRANSPORTE: int
     NOME_TRANSPORTE: str
     CNPJ: str

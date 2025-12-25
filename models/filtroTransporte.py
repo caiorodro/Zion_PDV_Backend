@@ -1,4 +1,5 @@
-from pydantic import BaseModel
+from dataclasses import dataclass
 
-class filtroTransporte(BaseModel):
+@dataclass
+class filtroTransporte:
     FILTRO: str

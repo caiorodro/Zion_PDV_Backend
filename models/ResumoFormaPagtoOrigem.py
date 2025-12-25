@@ -1,6 +1,7 @@
-from pydantic import BaseModel
+from dataclasses import dataclass
 
-class ResumoFormaPagtoOrigem(BaseModel):
+@dataclass
+class ResumoFormaPagtoOrigem:
     FORMA_PAGTO: str
     ORIGEM: str
     ABERTURA: float

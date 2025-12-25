@@ -1,5 +1,6 @@
-from pydantic import BaseModel
+from dataclasses import dataclass
 
-class impressaoAvulsa(BaseModel):
+@dataclass
+class impressaoAvulsa:
     NUMERO_PEDIDO: int
     NUMERO_IMPRESSORA: int

@@ -1,6 +1,7 @@
-from pydantic import BaseModel
+from dataclasses import dataclass
 
-class listaDeCaixa(BaseModel):
+@dataclass
+class listaDeCaixa:
     ID_ABERTURA: int
     DATA_ABERTURA: str
     VALOR_ABERTURA: float

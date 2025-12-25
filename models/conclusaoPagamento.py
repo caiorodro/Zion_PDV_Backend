@@ -1,6 +1,7 @@
-from pydantic import BaseModel
+from dataclasses import dataclass
 
-class conclusaoPagamento(BaseModel):
+@dataclass
+class conclusaoPagamento:
     NUMERO_PEDIDO: int
     IMPRESSAO: bool
     FISCAL: bool

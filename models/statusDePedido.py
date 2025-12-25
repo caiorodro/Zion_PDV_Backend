@@ -1,5 +1,6 @@
-from pydantic import BaseModel
+from dataclasses import dataclass
 
-class statusDePedido(BaseModel):
+@dataclass
+class statusDePedido:
     ID_STATUS: int
     DESCRICAO: str

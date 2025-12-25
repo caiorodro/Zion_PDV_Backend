@@ -1,5 +1,6 @@
-from pydantic import BaseModel
+from dataclasses import dataclass
 
-class nsu(BaseModel):
+@dataclass
+class nsu:
     ID_PAGAMENTO: int
     NSU: str

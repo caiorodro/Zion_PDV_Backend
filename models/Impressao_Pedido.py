@@ -1,6 +1,7 @@
-from pydantic import BaseModel
+from dataclasses import dataclass
 
-class IMPRESSAO_PEDIDO(BaseModel):
+@dataclass
+class IMPRESSAO_PEDIDO:
         
     IMPRESSAO_NAO_FISCAL: int 
     IMPRESSAO_FISCAL: int

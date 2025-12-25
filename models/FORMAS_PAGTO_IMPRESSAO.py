@@ -1,5 +1,6 @@
-from pydantic import BaseModel
+from dataclasses import dataclass
 
-class FORMAS_PAGTO_IMPRESSAO(BaseModel):
+@dataclass
+class FORMAS_PAGTO_IMPRESSAO:
     DESCRICAO: str
     VALOR: str

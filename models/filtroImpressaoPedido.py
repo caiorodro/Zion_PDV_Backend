@@ -1,4 +1,6 @@
 from pydantic import BaseModel
+from dataclasses import dataclass
 
-class filtroImpressaoPedido(BaseModel):
+@dataclass
+class filtroImpressaoPedido:
     MAQUINA: int

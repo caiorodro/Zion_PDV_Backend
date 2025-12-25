@@ -1,6 +1,7 @@
-from pydantic import BaseModel
+from dataclasses import dataclass
 
-class ResumoOrigem(BaseModel):
+@dataclass
+class ResumoOrigem:
     ORIGEM: str
     ABERTURA: float
     VALOR_VENDA: float

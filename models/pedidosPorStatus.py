@@ -1,5 +1,6 @@
-from pydantic import BaseModel
+from dataclasses import dataclass
 
-class pedidosPorStatus(BaseModel):
+@dataclass
+class pedidosPorStatus:
     STATUS: str
     COUNT: int

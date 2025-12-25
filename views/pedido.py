@@ -754,19 +754,22 @@ class pedido:
 
         return descricaoProduto
 
-    async def listaFormaPagto(self):
+    async def lista_FormaPagto(self) -> List[listaFormaPagto]:
+
         select1 = ctx.session.query(ctx.mapFormaPagto).order_by(
             ctx.mapFormaPagto.DESCRICAO_FORMA
         )
 
         lista = [
             listaFormaPagto(
-                ID_FORMA=row.ID_FORMA, DESCRICAO_FORMA=row.DESCRICAO_FORMA
+                ID_FORMA=row.ID_FORMA, 
+                DESCRICAO_FORMA=row.DESCRICAO_FORMA,
+                TAXA_PAGAMENTO=0 if row.TAXA_PAGAMENTO is None else float(row.TAXA_PAGAMENTO)
             ).__dict__
             for row in select1
         ]
 
-        return self.qBase.toRoute(lista, 200)
+        return lista
 
     async def checaConsumidorFinal(self) -> clienteEndereco:
         cliente = (

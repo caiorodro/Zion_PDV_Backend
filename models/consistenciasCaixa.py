@@ -1,5 +1,6 @@
-from pydantic import BaseModel
+from dataclasses import dataclass
 
-class consistenciasCaixa(BaseModel):
+@dataclass
+class consistenciasCaixa:
     DATA_HORA: str
     DESCRICAO: str

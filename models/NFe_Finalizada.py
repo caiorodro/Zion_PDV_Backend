@@ -1,6 +1,7 @@
-from pydantic import BaseModel
+from dataclasses import dataclass
 
-class NFe_Finalizada(BaseModel):
+@dataclass
+class NFe_Finalizada:
     NUMERO_PEDIDO: int 
     XML: str
     NUMERO_NF: int

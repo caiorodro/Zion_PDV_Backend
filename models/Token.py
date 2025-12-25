@@ -1,4 +1,5 @@
-from pydantic import BaseModel
+from dataclasses import dataclass
 
-class Token(BaseModel):
+@dataclass
+class Token:
     token: str

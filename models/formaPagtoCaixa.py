@@ -1,4 +1,5 @@
-from pydantic import BaseModel
+from dataclasses import dataclass
 
-class formaPagtoCaixa(BaseModel):
+@dataclass
+class formaPagtoCaixa:
     DESCRICAO_FORMA: str
