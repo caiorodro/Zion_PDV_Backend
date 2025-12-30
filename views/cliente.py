@@ -67,7 +67,7 @@ class Cliente:
                 BAIRRO=item.BAIRRO,
                 CEP=item.CEP,
                 CIDADE=item.MUNICIPIO,
-                UF=item.UF,
+                UF=item.UF
             ).__dict__
             for item in query
         ]

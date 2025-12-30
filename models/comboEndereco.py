@@ -7,5 +7,6 @@ class comboEndereco:
     NUMERO_ENDERECO: str
     COMPLEMENTO_ENDERECO: str
     BAIRRO: str
+    CEP: str
     CIDADE: str
     UF: str
