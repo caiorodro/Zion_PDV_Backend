@@ -551,6 +551,21 @@ async def buscaEndereco(filtro: filtroEndereco):
     return result
 
 
+@router.get("/getAllAddresses")
+async def getAllAddresses():
+    _cliente = Cliente()
+    result = None
+
+    try:
+        result = await _cliente.getAllAddresses()
+    except Exception as ex:
+        raise ex
+
+    finally:
+        del _cliente
+
+    return result
+
 @router.post("/cancelaPedido")
 async def cancelaPedido(record: filtroCancelamento):
     _cliente = pedido()

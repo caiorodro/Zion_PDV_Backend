@@ -4,6 +4,7 @@ import base.qModel as ctx
 from base.qBase import qBase
 from models.Cliente_Endereco_Transporte import Cliente_Endereco_Transporte
 from models.comboCliente import comboCliente
+from models.comboClienteEndereco import comboClienteEndereco
 from models.comboEndereco import comboEndereco
 from models.dadosCliente import dadosCliente
 from models.dadosEndereco import dadosEndereco
@@ -61,6 +62,49 @@ class Cliente:
         retorno = [
             comboEndereco(
                 ID_ENDERECO=item.ID_ENDERECO,
+                ENDERECO=item.ENDERECO,
+                NUMERO_ENDERECO=item.NUMERO_ENDERECO,
+                COMPLEMENTO_ENDERECO=item.COMPLEMENTO_ENDERECO,
+                BAIRRO=item.BAIRRO,
+                CEP=item.CEP,
+                CIDADE=item.MUNICIPIO,
+                UF=item.UF
+            ).__dict__
+            for item in query
+        ]
+
+        return retorno
+
+    async def getAllAddresses(self) -> List[comboClienteEndereco]:
+        e = ctx.mapEnderecoCliente
+        c = ctx.mapCliente
+
+        filters = [
+            e.ID_CLIENTE == c.ID_CLIENTE
+        ]
+
+        query = ctx.session.query(
+            e.ID_ENDERECO,
+            e.ID_CLIENTE,
+            c.NOME_CLIENTE,
+            c.CPF,
+            c.TELEFONE_CLIENTE,
+            e.ENDERECO,
+            e.NUMERO_ENDERECO,
+            e.COMPLEMENTO_ENDERECO,
+            e.BAIRRO,
+            e.CEP,
+            e.MUNICIPIO,
+            e.UF
+        ).filter(*filters).all()
+
+        retorno = [
+            comboClienteEndereco(
+                ID_ENDERECO=item.ID_ENDERECO,
+                ID_CLIENTE=item.ID_CLIENTE,
+                NOME_CLIENTE=item.NOME_CLIENTE,
+                CPF=item.CPF if item.CPF is not None else "",
+                TELEFONE_CLIENTE=item.TELEFONE_CLIENTE if item.TELEFONE_CLIENTE is not None else "",
                 ENDERECO=item.ENDERECO,
                 NUMERO_ENDERECO=item.NUMERO_ENDERECO,
                 COMPLEMENTO_ENDERECO=item.COMPLEMENTO_ENDERECO,
