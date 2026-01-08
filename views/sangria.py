@@ -151,3 +151,6 @@ class Sangria:
         ]
 
         return retorno 
+    
+    def __del__(self):
+        ctx.session.close_all()

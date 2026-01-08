@@ -386,4 +386,9 @@ class Cliente:
         return editCliente(cliente=cliente, endereco=endereco)
 
     def __del__(self):
+        try:
+            ctx.session.rollback()
+        except:
+            pass
+
         ctx.session.close_all()

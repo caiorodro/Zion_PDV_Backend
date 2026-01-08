@@ -81,3 +81,6 @@ class Reforco:
         )
 
         return retorno
+
+    def __del__(self):
+        ctx.session.close_all()

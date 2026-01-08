@@ -3187,7 +3187,7 @@ class pedido:
             pr.DESCRICAO_PRODUTO
         ).filter(
             pr.ID_PRODUTO.in_(ids)    
-        )
+        ).all()
 
         retorno = [
             comboProduto(
