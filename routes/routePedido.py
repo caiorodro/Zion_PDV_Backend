@@ -50,6 +50,7 @@ from models.listaProduto import listaProduto
 from models.notaAutorizada import notaAutorizada
 from models.nsu import nsu
 from models.numeroItemPedido import numeroItemPedido
+from models.numeroPedido import NUM_PEDIDO
 from models.Order import Order
 from models.pagamentoPedido import pagamentoPedido
 from models.produtoIDQtde import produtoIDQtde
@@ -72,14 +73,15 @@ router = APIRouter()
 security = HTTPBearer()
 
 @router.post("/saveOrder")
-def saveOrder(order: Order):
+def saveOrder(order: Order) -> NUM_PEDIDO | str:
     result = None
     _pedido = pedido()
 
     try:
         result = _pedido.test_gravaPedido(order)
     except Exception as ex:
-        raise ex
+        print(ex.args)
+        return ''
     finally:
         del _pedido
 

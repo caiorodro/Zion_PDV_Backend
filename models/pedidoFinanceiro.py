@@ -4,3 +4,5 @@ from dataclasses import dataclass
 class pedidoFinanceiro:
     NUMERO_PEDIDO: int
     NOME_CLIENTE: str
+    ID_CLIENTE: int
+    TOTAL_PEDIDO: float

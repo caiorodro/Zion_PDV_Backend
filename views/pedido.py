@@ -109,11 +109,12 @@ class pedido:
 
         numeroPedido = self.gravaPedido(order)
 
-        return self.qBase.toRoute(
-            NUM_PEDIDO(NUMERO_PEDIDO=numeroPedido).__dict__, 200
-        )
+        if isinstance(numeroPedido, str):
+            return numeroPedido
 
-    def gravaPedido(self, order: Order) -> dict:
+        return NUM_PEDIDO(NUMERO_PEDIDO=numeroPedido)        
+
+    def gravaPedido(self, order: Order) -> dict | str:
         cliente = self.getClientePedido(order.pedido.ID_CLIENTE, order.pedido.ID_ENDERECO)
 
         if 'consumidor final' not in cliente.NOME_CLIENTE.lower():
@@ -141,10 +142,15 @@ class pedido:
 
         [self.test_baixaEstoque(item) for item in order.itemsPedido]
 
-        [
+        financeiro = [
             self.test_gravaFinanceiro(order.pedido, order.itemsPedido, pagamento)
             for pagamento in order.pagamento
         ]
+
+        erro = list(filter(lambda e: isinstance(e, str), financeiro))
+
+        if any(erro):
+            return ''.join(erro)
 
         if order.impressaoPedido.IMPRESSAO_NAO_FISCAL == 1:
             cmd = ctx.tb_fila_comanda.insert().values(
@@ -253,7 +259,7 @@ class pedido:
             ID_TERMINAL=item.ID_TERMINAL,
         )
 
-        descricaoProduto = asyncio.run(self.getDescricaoProduto(item.ID_PRODUTO))
+        descricaoProduto = self.getDescricaoProduto(item.ID_PRODUTO)
 
         cmd1 = ctx.tb_atendimento_comanda.insert().values(
             ID_ATENDIMENTO=0,
@@ -445,14 +451,14 @@ class pedido:
 
     def test_gravaFinanceiro(
         self, pedido: pedido, itemsPedido: List[itemPedido], pagamento: pedidoPagamento
-    ) -> bool:
-        assert self.gravaFinanceiro(pedido, itemsPedido, pagamento) == True
+    ) -> bool | str:
+        result = self.gravaFinanceiro(pedido, itemsPedido, pagamento)
 
-        return True
+        return result
 
     def gravaFinanceiro(
         self, _pedido: pedido, itemsPedido: List[itemPedido], pagamento: pedidoPagamento
-    ) -> bool:
+    ) -> bool | str:
         table = ctx.mapFormaPagto
 
         formaPagto = (
@@ -463,10 +469,10 @@ class pedido:
 
         if len(formaPagto) > 0:
             if formaPagto[0].PAGTO_FUTURO == 1:
-                
+
                 itemsFinanceiro = [
                     itemPedidoFinanceiro(
-                        PRODUTO= asyncio.run(self.getDescricaoProduto(item.ID_PRODUTO)),
+                        PRODUTO= self.getDescricaoProduto(item.ID_PRODUTO),
                         QTDE=item.QTDE
                     )
                     for item in itemsPedido
@@ -475,7 +481,9 @@ class pedido:
                 self.inserePagtoFuturo(
                     pedidoFinanceiro(
                         NUMERO_PEDIDO=_pedido.NUMERO_PEDIDO,
-                        NOME_CLIENTE=asyncio.run(self.getNomeCliente(_pedido.ID_CLIENTE))
+                        NOME_CLIENTE=self.getNomeCliente(_pedido.ID_CLIENTE),
+                        ID_CLIENTE=_pedido.ID_CLIENTE,
+                        TOTAL_PEDIDO=_pedido.TOTAL_PEDIDO
                     ), 
                     itemsFinanceiro, 
                     pedidoPagamentoFinanceiro(
@@ -485,6 +493,33 @@ class pedido:
                 )
 
                 return True
+
+            if formaPagto[0].VALE_FUNCIONARIO == 1:
+                itemsFinanceiro = [
+                    itemPedidoFinanceiro(
+                        PRODUTO= self.getDescricaoProduto(item.ID_PRODUTO),
+                        QTDE=item.QTDE
+                    )
+                    for item in itemsPedido
+                ]
+
+                result = self.insereValeFuncionario(
+                    pedidoFinanceiro(
+                        NUMERO_PEDIDO=_pedido.NUMERO_PEDIDO,
+                        NOME_CLIENTE=self.getNomeCliente(_pedido.ID_CLIENTE),
+                        ID_CLIENTE=_pedido.ID_CLIENTE,
+                        TOTAL_PEDIDO=_pedido.TOTAL_PEDIDO
+                    ), 
+                    itemsFinanceiro, 
+                    pedidoPagamentoFinanceiro(
+                        VALOR_PAGO=pagamento.VALOR_PAGO,
+                        NUMERO_PEDIDO=pagamento.NUMERO_PEDIDO
+                    )
+                )
+
+                if isinstance(result, str):
+                    ctx.session.rollback()
+                    return result
 
             self.inserePagtoCartao(_pedido, itemsPedido, pagamento)
 
@@ -690,7 +725,7 @@ class pedido:
 
         items = [
             produtoQtde(
-                DESCRICAO_PRODUTO=asyncio.run(self.getDescricaoProduto(item.ID_PRODUTO)),
+                DESCRICAO_PRODUTO=self.getDescricaoProduto(item.ID_PRODUTO),
                 QTDE=item.QTDE
             )
             for item in itemsPedido
@@ -700,7 +735,7 @@ class pedido:
             [f"[{item.DESCRICAO_PRODUTO}, Qtde: {str(item.QTDE)}]" for item in items]
         )
 
-        nomeCliente = asyncio.run(self.getNomeCliente(pedido.ID_CLIENTE))
+        nomeCliente = self.getNomeCliente(pedido.ID_CLIENTE)
 
         descricao = "".join(
             [
@@ -743,7 +778,65 @@ class pedido:
 
         return True
 
-    async def getDescricaoProduto(self, ID_PRODUTO) -> str:
+    def insereValeFuncionario(
+        self, pedido: pedidoFinanceiro, itemsPedido: List[itemPedidoFinanceiro], 
+            pagamento: pedidoPagamentoFinanceiro) -> bool | str:
+
+        d1 = datetime(datetime.today().year, datetime.today().month, 1)
+        d2 = d1 + relativedelta(months=1)
+
+        p = ctx.mapPedido
+        f = ctx.mapFormaPagto
+        pg = ctx.mapPedidoPagamento
+
+        filters = [
+            p.ID_CLIENTE == pedido.ID_CLIENTE,
+            p.DATA_HORA >= d1,
+            p.DATA_HORA < d2,
+            p.STATUS_PEDIDO == 3
+        ]
+
+        soma = ctx.session.query(
+            func.sum(p.TOTAL_PEDIDO).label("TOTAL_VENDAS")
+        ).filter(*filters).first()
+
+        totalVendas = 0.00 if soma[0] is None else float(soma[0])
+        
+        totalVendas += pedido.TOTAL_PEDIDO
+
+        formaPagto = ctx.session.query(
+            pg.FORMA_PAGTO
+        ).filter(
+            pg.NUMERO_PEDIDO == pedido.NUMERO_PEDIDO 
+        ).first().FORMA_PAGTO
+
+        valorMaximoMensal = (
+            ctx.session.query(f).filter(
+            f.DESCRICAO_FORMA == formaPagto
+            ).first()
+        ).VALOR_DIA
+
+        if valorMaximoMensal is None:
+            valorMaximoMensal = 0.00
+
+        valorMaximoMensal = float(valorMaximoMensal)
+
+        if totalVendas > valorMaximoMensal:
+            return '\n'.join((
+                f"O valor máximo mensal para vale funcionário foi excedido. ",
+                f"Valor máximo: {self.qBase.currency(valorMaximoMensal)}. ",
+                f"Total de vendas do mês: {self.qBase.currency(totalVendas)}."
+            ))
+
+        self.inserePagtoFuturo(
+            pedido, 
+            itemsPedido, 
+            pagamento
+        )
+
+        return True
+
+    def getDescricaoProduto(self, ID_PRODUTO) -> str:
         rec = (
             ctx.session.query(ctx.mapProduto)
             .filter(ctx.mapProduto.ID_PRODUTO == ID_PRODUTO)
@@ -888,7 +981,7 @@ class pedido:
 
         return query[0].NOME_TRANSPORTE if len(query) > 0 else ""
 
-    async def getNomeCliente(self, ID_CLIENTE: int) -> str:
+    def getNomeCliente(self, ID_CLIENTE: int) -> str:
         t = ctx.mapCliente
 
         query = ctx.session.query(t).filter(t.ID_CLIENTE == ID_CLIENTE).all()
@@ -1165,7 +1258,7 @@ class pedido:
 
         obsItem = item.OBS_ITEM if item.OBS_ITEM is not None else ''
         
-        retorno = await self.getDescricaoProduto(item.ID_PRODUTO) + f' {obsItem}'
+        retorno = self.getDescricaoProduto(item.ID_PRODUTO) + f' {obsItem}'
 
         return retorno
     
@@ -1249,7 +1342,7 @@ class pedido:
             CPF=rec.CPF,
             NOME_CLIENTE=rec.NOME_CLIENTE,
             ID_TRANSPORTE=0 if rec.ID_TRANSPORTE is None else rec.ID_TRANSPORTE,
-            NOME_TRANSPORTE=await self.getNomeTransporte(rec.ID_TRANSPORTE),
+            NOME_TRANSPORTE=self.getNomeTransporte(rec.ID_TRANSPORTE),
             ORIGEM=rec.ORIGEM,
             TAXA_ENTREGA=float(rec.TAXA_ENTREGA)
             if rec.TAXA_ENTREGA is not None
@@ -1456,7 +1549,7 @@ class pedido:
 
         items = [
             produtoQtde(
-                DESCRICAO_PRODUTO=await self.getDescricaoProduto(item.ID_PRODUTO), 
+                DESCRICAO_PRODUTO=self.getDescricaoProduto(item.ID_PRODUTO), 
                 QTDE=item.QTDE
                 )
             for item in itemsPedido
@@ -1533,25 +1626,35 @@ class pedido:
 
         itemsPedido = [
             itemPedidoFinanceiro(
-                PRODUTO=await self.getDescricaoProduto(item.ID_PRODUTO),
+                PRODUTO=self.getDescricaoProduto(item.ID_PRODUTO),
                 QTDE= float(item.QTDE)
             )
             for item in items
         ]
 
-        nomeCliente = ctx.session.query(p.NUMERO_PEDIDO, p.ID_CLIENTE, c.NOME_CLIENTE).filter(*
+        qC = ctx.session.query(
+            p.NUMERO_PEDIDO, 
+            p.ID_CLIENTE, 
+            c.NOME_CLIENTE,
+            p.TOTAL_PEDIDO
+        ).filter(*
             [p.NUMERO_PEDIDO == NUMERO_PEDIDO, p.ID_CLIENTE == c.ID_CLIENTE]
-        ).first().NOME_CLIENTE
+        ).first()
+
+        nomeCliente = qC.NOME_CLIENTE
+        idCliente = qC.ID_CLIENTE
+        _totalPedido = float(qC.TOTAL_PEDIDO)
 
         self.inserePagtoFuturo(
             pedidoFinanceiro(
                 NUMERO_PEDIDO=NUMERO_PEDIDO,
-                NOME_CLIENTE=nomeCliente
+                NOME_CLIENTE=nomeCliente,
+                ID_CLIENTE=idCliente,
+                TOTAL_PEDIDO=_totalPedido
             ),
             itemsPedido,
             recordPagamento
         )
-
 
     async def recalculaTotaisPedido(self, NUMERO_PEDIDO: int):
         p = ctx.mapPedido
@@ -1630,7 +1733,7 @@ class pedido:
                 NUMERO_PEDIDO=item.NUMERO_PEDIDO,
                 ID_PRODUTO=item.ID_PRODUTO,
                 ID_TRIBUTO=item.ID_TRIBUTO,
-                DESCRICAO_PRODUTO=await self.getDescricaoProduto(item.ID_PRODUTO),
+                DESCRICAO_PRODUTO=self.getDescricaoProduto(item.ID_PRODUTO),
                 QTDE=item.QTDE,
                 PRECO=0.00
                 if item.PRECO_UNITARIO is None
@@ -2860,7 +2963,7 @@ class pedido:
         lista = [
             itemsNFe(
                 NUMERO_ITEM=item.NUMERO_ITEM,
-                DESCRICAO_PRODUTO=await self.getDescricaoProduto(item.ID_PRODUTO),
+                DESCRICAO_PRODUTO=self.getDescricaoProduto(item.ID_PRODUTO),
                 QTDE=int(item.QTDE),
                 PRECO=float(item.PRECO_UNITARIO),
                 TOTAL=float(item.VALOR_TOTAL),
