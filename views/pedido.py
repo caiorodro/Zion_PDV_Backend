@@ -974,7 +974,7 @@ class pedido:
 
         return retorno
 
-    async def getNomeTransporte(self, ID_TRANSPORTE: int) -> str:
+    def getNomeTransporte(self, ID_TRANSPORTE: int) -> str:
         t = ctx.mapTransporte
 
         query = ctx.session.query(t).filter(t.ID_TRANSPORTE == ID_TRANSPORTE).all()

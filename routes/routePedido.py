@@ -1203,7 +1203,7 @@ async def getNomeCliente(filtro: filtroCliente):
     retorno = None
 
     try:
-        retorno = await ped.getNomeCliente(
+        retorno = ped.getNomeCliente(
             int(filtro.FILTRO)
         )
 
