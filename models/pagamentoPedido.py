@@ -8,3 +8,4 @@ class pagamentoPedido:
     DESCRICAO_FORMA: str
     VALOR_PAGO: float
     CODIGO_AUTORIZACAO: str
+    DATA_HORA: str

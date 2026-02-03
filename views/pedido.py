@@ -1248,7 +1248,8 @@ class pedido:
                     TELEFONE=empresa.TELEFONE
                     if len(item.TELEFONE_CLIENTE) == 0
                     else item.TELEFONE_CLIENTE,
-                    NF= isinstance(item.hasNF, int)
+                    NF= isinstance(item.hasNF, int),
+                    SUPERTEF=item.CODIGO_NSU is not None and len(item.CODIGO_NSU) > 0
                 )
             )
 
@@ -1806,6 +1807,7 @@ class pedido:
                 DESCRICAO_FORMA=item.FORMA_PAGTO,
                 VALOR_PAGO=0.00 if item.VALOR_PAGO is None else float(item.VALOR_PAGO),
                 CODIGO_AUTORIZACAO="" if item.CODIGO_NSU is None else item.CODIGO_NSU,
+                DATA_HORA=item.DATA_HORA
             )
             for item in query
         ]
