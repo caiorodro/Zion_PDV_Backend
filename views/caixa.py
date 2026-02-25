@@ -465,29 +465,31 @@ class Caixa:
                 pg.VALOR_PAGO,
                 pg.CODIGO_NSU,
                 pg.ID_PAGAMENTO,
-                pg.VALOR_PAGO_STONE
+                pg.VALOR_PAGO_STONE,
+                pg.FORMA_PAGTO
             )
             .join(p, pg.NUMERO_PEDIDO == p.NUMERO_PEDIDO)
             .filter(*_filters)
             .all()
         )
 
-        def calculaValorPago(valorPago, troco) -> float:
+        def calculaValorPago(formaPagto: str, valorPago: any, troco: any) -> float:
             if valorPago is None:
                 valorPago = 0.00
 
             if troco is None:
                 troco = 0.00
 
-            retorno = 0.00
+            retorno = float(valorPago) if valorPago is not None else 0.00
 
-            try:
-                retorno = round(
-                    float(valorPago) - float(troco),
-                    2
-                )
-            except:
-                pass
+            if "DINHEIRO" in formaPagto.upper():
+                try:
+                    retorno = round(
+                        float(valorPago) - float(troco),
+                        2
+                    )
+                except:
+                    pass
 
             return retorno
 
@@ -500,7 +502,7 @@ class Caixa:
                 TOTAL_PEDIDO=0.00
                 if item.TOTAL_PEDIDO is None
                 else float(item.TOTAL_PEDIDO),
-                TOTAL_PAGO=calculaValorPago(item.VALOR_PAGO, item.TROCO),
+                TOTAL_PAGO=calculaValorPago(item.FORMA_PAGTO, item.VALOR_PAGO, item.TROCO),
                 CODIGO_NSU="" if item.CODIGO_NSU is None else item.CODIGO_NSU,
                 ID_PAGAMENTO=item.ID_PAGAMENTO,
                 VALOR_PAGO_STONE=0 if item.VALOR_PAGO_STONE is None else float(item.VALOR_PAGO_STONE)

@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 from typing import List
 
 from dateutil.relativedelta import relativedelta
-from sqlalchemy import desc, select, func
+from sqlalchemy import desc, func, text
 
 import base.qModel as ctx
 from base.qBase import qBase
@@ -45,6 +45,7 @@ from models.numeroItemPedido import numeroItemPedido
 from models.numeroPedido import NUM_PEDIDO
 from models.Order import Order
 from models.pedido import pedido as ped
+from models.pagamentoAutorizado import pagamentoAutorizado
 from models.pagamentoPedido import pagamentoPedido
 from models.pedido import pedido
 from models.pedidoFinanceiro import pedidoFinanceiro
@@ -940,7 +941,7 @@ class pedido:
 
         return retorno
 
-    async def get_Pagamentos(self, NUMERO_PEDIDO: int, query: any) -> str:
+    async def get_Pagamentos(self, NUMERO_PEDIDO: int, query: List) -> str:
         lista = [
             FORMAS_PAGTO_IMPRESSAO(
                 DESCRICAO = item.FORMA_PAGTO,
@@ -950,29 +951,28 @@ class pedido:
             if item.NUMERO_PEDIDO == NUMERO_PEDIDO
         ]
 
-        lista1 = []
-
-        for item in lista:
-            list(
-                filter(
-                    lambda e: e.DESCRICAO ==  item.DESCRICAO
-                    and e.VALOR == item.VALOR,
-                    lista1
-                )
-            )
-
-
-            if not any(lista1):
-                lista1.append(item)
-
         retorno = "\n".join(
             [
                 f"{item.DESCRICAO}: {item.VALOR}"
-                for item in lista1
+                for item in lista
             ]
         )
 
         return retorno
+
+    async def get_DadosPagamentos(self, NUMERO_PEDIDO: int, query: list) -> str:
+        lista = [
+            '|'.join((
+                str(item.ID_PAGAMENTO),
+                item.FORMA_PAGTO,
+                str(item.VALOR_PAGO),
+                '' if item.CODIGO_NSU is None else item.CODIGO_NSU
+            ))
+            for item in query
+            if item.NUMERO_PEDIDO == NUMERO_PEDIDO
+        ]
+
+        return '\n'.join(lista)
 
     def getNomeTransporte(self, ID_TRANSPORTE: int) -> str:
         t = ctx.mapTransporte
@@ -1014,20 +1014,9 @@ class pedido:
         return retorno
 
     async def getByNumeroPedido(self, filtro: filtroPedido) -> List[listaDePedido]:
-        p = ctx.mapPedido
-        t = ctx.mapTransporte
-        pg = ctx.mapPedidoPagamento
-
-        filters = [
-            p.NUMERO_PEDIDO == filtro.FILTRO,
-            p.ID_TRANSPORTE == t.ID_TRANSPORTE,
-            pg.NUMERO_PEDIDO == p.NUMERO_PEDIDO,
-        ]
-
-        nota = self.getSubQueryHasNF()
-
-        query = (
-            ctx.session.query(
+        
+        sql = text(f"""
+            SELECT 
                 pg.NUMERO_PEDIDO,
                 pg.DATA_HORA,
                 p.STATUS_PEDIDO,
@@ -1042,41 +1031,32 @@ class pedido:
                 p.TELEFONE_CLIENTE,
                 pg.FORMA_PAGTO,
                 pg.VALOR_PAGO,
-                nota.c.hasNF
-            )
-            .filter(*filters)
-            .all()
-        )
+                pg.CODIGO_NSU,
+                pg.ID_PAGAMENTO,
+                CASE 
+                    WHEN EXISTS (
+                        SELECT 1 
+                        FROM tb_pedido_nfe pnf
+                        WHERE pnf.NUMERO_PEDIDO = pg.NUMERO_PEDIDO
+                        AND pnf.PROCESSADO = 10
+                    ) THEN 1
+                    ELSE 0
+                END AS nota
+            FROM tb_pedido p
+            JOIN tb_pedido_pagamento pg ON pg.NUMERO_PEDIDO = p.NUMERO_PEDIDO
+            LEFT JOIN tb_transporte t ON t.ID_TRANSPORTE = p.ID_TRANSPORTE 
+            WHERE p.NUMERO_PEDIDO = {filtro.FILTRO};
+        """)
+
+        query = ctx.session.execute(sql).fetchall()
 
         retorno = await self.retornoQueryPedidos(query)
 
         return retorno
 
     async def getByNumeroZe(self, filtro: filtroListaPedido) -> List[listaDePedido]:
-        p = ctx.mapPedido
-        t = ctx.mapTransporte
-        pg = ctx.mapPedidoPagamento
-
-        filters = [
-            p.NUMERO_PEDIDO_ZE_DELIVERY == filtro.FILTRO,
-            p.ORIGEM == filtro.ORIGEM,
-            p.ID_TRANSPORTE == t.ID_TRANSPORTE,
-            pg.NUMERO_PEDIDO == p.NUMERO_PEDIDO,
-        ]
-
-        nota = self.getSubQueryHasNF()
-
-        query = (
-            ctx.session.query()
-            .order_by(pg.DATA_HORA)
-            .filter(*filters)
-            .offset(filtro.START)
-            .limit(50)
-            .all()
-        )
-
-        query = (
-            ctx.session.query(
+        sql = text(f"""
+            SELECT 
                 pg.NUMERO_PEDIDO,
                 pg.DATA_HORA,
                 p.STATUS_PEDIDO,
@@ -1091,32 +1071,32 @@ class pedido:
                 p.TELEFONE_CLIENTE,
                 pg.FORMA_PAGTO,
                 pg.VALOR_PAGO,
-                nota.c.hasNF
-            )
-            .filter(*filters)
-            .all()
-        )
+                pg.CODIGO_NSU,
+                pg.ID_PAGAMENTO,
+                CASE 
+                    WHEN EXISTS (
+                        SELECT 1 
+                        FROM tb_pedido_nfe pnf
+                        WHERE pnf.NUMERO_PEDIDO = pg.NUMERO_PEDIDO
+                        AND pnf.PROCESSADO = 10 
+                    ) THEN 1
+                    ELSE 0
+                END AS nota
+            FROM tb_pedido p
+            JOIN tb_pedido_pagamento pg ON pg.NUMERO_PEDIDO = p.NUMERO_PEDIDO
+            LEFT JOIN tb_transporte t ON t.ID_TRANSPORTE = p.ID_TRANSPORTE 
+            WHERE p.NUMERO_PEDIDO_ZE_DELIVERY = {filtro.FILTRO};
+        """)
+
+        query = ctx.session.execute(sql).fetchall()
 
         retorno = await self.retornoQueryPedidos(query)
 
         return retorno
-
+    
     async def getByNumeroIFood(self, filtro: filtroListaPedido) -> List[listaDePedido]:
-        p = ctx.mapPedido
-        t = ctx.mapTransporte
-        pg = ctx.mapPedidoPagamento
-
-        filters = [
-            p.NUMERO_PEDIDO_IFOOD == filtro.FILTRO,
-            p.ORIGEM == filtro.ORIGEM,
-            p.ID_TRANSPORTE == t.ID_TRANSPORTE,
-            pg.NUMERO_PEDIDO == p.NUMERO_PEDIDO,
-        ]
-
-        nota = self.getSubQueryHasNF()
-
-        query = (
-            ctx.session.query(
+        sql = text(f"""
+            SELECT 
                 pg.NUMERO_PEDIDO,
                 pg.DATA_HORA,
                 p.STATUS_PEDIDO,
@@ -1131,57 +1111,38 @@ class pedido:
                 p.TELEFONE_CLIENTE,
                 pg.FORMA_PAGTO,
                 pg.VALOR_PAGO,
-                nota.c.hasNF
-            )
-            .filter(*filters)
-            .all()
-        )
+                pg.CODIGO_NSU,
+                pg.ID_PAGAMENTO,
+                CASE 
+                    WHEN EXISTS (
+                        SELECT 1 
+                        FROM tb_pedido_nfe pnf
+                        WHERE pnf.NUMERO_PEDIDO = pg.NUMERO_PEDIDO
+                        AND pnf.PROCESSADO = 10      
+                    ) THEN 1
+                    ELSE 0
+                END AS nota
+            FROM tb_pedido p
+            JOIN tb_pedido_pagamento pg ON pg.NUMERO_PEDIDO = p.NUMERO_PEDIDO
+            LEFT JOIN tb_transporte t ON t.ID_TRANSPORTE = p.ID_TRANSPORTE 
+            WHERE p.NUMERO_PEDIDO_IFOOD = {filtro.FILTRO};
+        """)
+
+        query = ctx.session.execute(sql).fetchall()
 
         retorno = await self.retornoQueryPedidos(query)
 
         return retorno
-
-    def getSubQueryHasNF(self) -> any:
-        pnf = ctx.mapPedidoNFe
-
-        subQuery = (
-            ctx.session.query(
-                pnf.NUMERO_PEDIDO,
-                func.count(pnf.NUMERO_PEDIDO).label("hasNF")
-            )
-            .group_by(pnf.NUMERO_PEDIDO)
-            .subquery()
-        )
-
-        return subQuery
 
     async def getByDataHora(self, filtro: filtroListaPedido) -> List[listaDePedido]:
-        p = ctx.mapPedido
-        t = ctx.mapTransporte
-        pg = ctx.mapPedidoPagamento
 
-        d1 = datetime.today() + timedelta(days=-15)
-        d2 = datetime.today() + timedelta(hours=1)
+        statuses = [str(item) for item in filtro.STATUS]
 
-        filters = [p.DATA_HORA >= d1, p.DATA_HORA < d2]
+        d1 = (datetime.today() + timedelta(days=-15)).strftime('%Y-%m-%d')
+        d2 = (datetime.today() + timedelta(hours=1)).strftime('%Y-%m-%d %H:%M')
 
-        if len(filtro.FILTRO) > 0:
-            filters.append(p.NOME_CLIENTE.like(f"%{filtro.FILTRO}%"))
-
-        if filtro.ORIGEM != "Todos":
-            filters.append(p.ORIGEM == filtro.ORIGEM)
-
-        if 0 not in filtro.STATUS:
-            filters.append(p.STATUS_PEDIDO.in_(filtro.STATUS))
-
-        filters.extend(
-            (p.ID_TRANSPORTE == t.ID_TRANSPORTE, pg.NUMERO_PEDIDO == p.NUMERO_PEDIDO)
-        )
-
-        nota = self.getSubQueryHasNF()
-
-        query = (
-            ctx.session.query(
+        sqlText = f"""
+            SELECT 
                 pg.NUMERO_PEDIDO,
                 pg.DATA_HORA,
                 p.STATUS_PEDIDO,
@@ -1196,19 +1157,40 @@ class pedido:
                 p.TELEFONE_CLIENTE,
                 pg.FORMA_PAGTO,
                 pg.VALOR_PAGO,
-                nota.c.hasNF
-            )
-            .outerjoin(nota, p.NUMERO_PEDIDO == nota.c.NUMERO_PEDIDO)
-            .order_by(desc(pg.DATA_HORA))
-            .filter(*filters)
-            .offset(filtro.START)
-            .limit(50)
-            .all()
-        )
+                pg.CODIGO_NSU,
+                pg.ID_PAGAMENTO,
+                CASE 
+                    WHEN EXISTS (
+                        SELECT 1 
+                        FROM tb_pedido_nfe pnf
+                        WHERE pnf.NUMERO_PEDIDO = pg.NUMERO_PEDIDO
+                        AND pnf.PROCESSADO = 10      
+                    ) THEN 1
+                    ELSE 0
+                END AS nota
+            FROM tb_pedido p
+            JOIN tb_pedido_pagamento pg ON pg.NUMERO_PEDIDO = p.NUMERO_PEDIDO
+            LEFT JOIN tb_transporte t ON t.ID_TRANSPORTE = p.ID_TRANSPORTE 
+            WHERE (p.DATA_HORA >= '{d1}' AND p.DATA_HORA < '{d2}') 
+        """
+
+        if len(filtro.FILTRO) > 0:
+            sqlText += f' AND p.NOME_CLIENTE like "%{filtro.FILTRO}%"'
+
+        if filtro.ORIGEM != "Todos":
+            sqlText += f' AND p.ORIGEM = "{filtro.ORIGEM}"'
+
+        if 0 not in filtro.STATUS:
+            sqlText += f' AND p.STATUS_PEDIDO in ({",".join(statuses)})'
+
+        sql = text(f'{sqlText} ORDER BY p.DATA_HORA desc LIMIT 50 OFFSET {filtro.START};')
+
+        query = ctx.session.execute(sql).fetchall()
 
         retorno = await self.retornoQueryPedidos(query)
 
         return retorno
+
 
     async def retornoQueryPedidos(self, query) -> List[listaDePedido]:
         e = ctx.mapEmpresa
@@ -1238,18 +1220,25 @@ class pedido:
                     STATUS_PEDIDO=Config.getStatus(item),
                     NOME_CLIENTE=item.NOME_CLIENTE,
                     TRANSPORTE=item.NOME_TRANSPORTE,
+
                     TOTAL_PEDIDO=0.00
                     if item.TOTAL_PEDIDO is None
                     else float(item.TOTAL_PEDIDO),
-                    PAGAMENTOS=await self.get_Pagamentos(item.NUMERO_PEDIDO, query),
+
+                    PAGAMENTOS=await self.get_Pagamentos(item.NUMERO_PEDIDO, lista),
+
                     ENDERECO=empresa.ENDERECO
                     if len(item.ENDERECO_CLIENTE) == 0
                     else item.ENDERECO_CLIENTE,
+
                     TELEFONE=empresa.TELEFONE
                     if len(item.TELEFONE_CLIENTE) == 0
                     else item.TELEFONE_CLIENTE,
-                    NF= isinstance(item.hasNF, int),
-                    SUPERTEF=item.CODIGO_NSU is not None and len(item.CODIGO_NSU) > 0
+
+                    NF= item.nota == 1,
+                    DESCRICAO_FORMA=item.FORMA_PAGTO,
+                    CODIGO_AUTORIZACAO=item.CODIGO_NSU,
+                    DADOS_PAGAMENTO=await self.get_DadosPagamentos(item.NUMERO_PEDIDO, lista),
                 )
             )
 
@@ -3220,6 +3209,27 @@ class pedido:
                 )
 
         return ', '.join(retorno)
+
+    def gravaDados_PagamentoAutorizado(self, dados: pagamentoAutorizado):
+        pg = ctx.mapPedidoPagamento
+
+        dtAutorizacao = datetime.today()
+
+        try:
+            dtAutorizacao = datetime.strptime(dados.DATA_AUTORIZACAO, "%Y-%m-%dT%H:%M:%S.%fZ")
+        except:
+            pass
+
+        cmd = ctx.tb_pedido_pagamento.update().values(
+            VALOR_PAGO_STONE=dados.VALOR_PAGO,
+            CODIGO_NSU=dados.NSU,
+            DATA_AUTORIZACAO=dtAutorizacao,
+            BANDEIRA=dados.BANDEIRA,
+            ID_TERMINAL=dados.ID_TERMINAL
+        ).where(pg.NUMERO_PEDIDO == dados.NUMERO_PEDIDO)
+
+        ctx.session.execute(cmd)
+        ctx.session.commit()
 
     def __del__(self):
         ctx.session.close_all()

@@ -116,6 +116,8 @@ class Cliente:
             for item in query
         ]
 
+        retorno = sorted(retorno, key=lambda e: e['NOME_CLIENTE'])
+
         return retorno
 
     async def get_Dados_Cliente_Endereco_Transporte(

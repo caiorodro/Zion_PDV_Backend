@@ -13,3 +13,6 @@ class listaDePedido:
     ENDERECO: str
     TELEFONE: str
     NF: bool
+    DESCRICAO_FORMA: str
+    CODIGO_AUTORIZACAO: str
+    DADOS_PAGAMENTO: str

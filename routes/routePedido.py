@@ -1,6 +1,6 @@
 
-from typing import List
 import traceback
+from typing import List
 
 from fastapi import APIRouter
 from fastapi.security import HTTPBearer
@@ -8,7 +8,6 @@ from fastapi.security import HTTPBearer
 from base.authentication import authentication
 from base.checkDatabase import checkTables
 from cfg.config import Config
-from logs.manageLog import manageLog
 from models.produtoImage import produtoImage
 from models.aberturaCaixa import aberturaCaixa
 from models.Cliente_Endereco_Transporte import Cliente_Endereco_Transporte
@@ -52,6 +51,7 @@ from models.nsu import nsu
 from models.numeroItemPedido import numeroItemPedido
 from models.numeroPedido import NUM_PEDIDO
 from models.Order import Order
+from models.pagamentoAutorizado import pagamentoAutorizado
 from models.pagamentoPedido import pagamentoPedido
 from models.produtoIDQtde import produtoIDQtde
 from models.reforco import reforco
@@ -80,7 +80,11 @@ def saveOrder(order: Order) -> NUM_PEDIDO | str:
     try:
         result = _pedido.test_gravaPedido(order)
     except Exception as ex:
-        print(ex.args)
+        print(
+            ex.args,
+            traceback.format_exc()
+            )
+
         return ''
     finally:
         del _pedido
@@ -1337,6 +1341,22 @@ async def getImageProducts() -> List[produtoImage]:
 
     try:
         retorno = await ped.getImageProducts()
+    except Exception as ex:
+        raise ex
+
+    finally:
+        del ped
+
+    return retorno
+
+@router.post('/gravaDados_PagamentoAutorizado')
+async def gravaDados_PagamentoAutorizado(dados: pagamentoAutorizado):
+    ped = pedido()
+
+    retorno = []
+
+    try:
+        retorno = ped.gravaDados_PagamentoAutorizado(dados)
     except Exception as ex:
         raise ex
 
