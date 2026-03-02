@@ -18,6 +18,7 @@ from models.filtroCAIXA import filtroCAIXA
 from models.filtroFormasPagtoCaixa import filtroFormasPagtoCaixa
 from models.filtroImpressaoCaixa import filtroImpressaoCaixa
 from models.formaPagtoCaixa import formaPagtoCaixa
+from models.historicoCaixas import HistoricoCaixas
 from models.itemCaixa import itemCaixa
 from models.listaDeCaixa import listaDeCaixa
 from models.listaDePagamentos import listaDePagamentos
@@ -1239,6 +1240,46 @@ class Caixa:
         ]
 
         return retorno
+
+    async def listaCaixasAnteriores(self) -> List[HistoricoCaixas]:
+        a = ctx.mapAberturaCaixa
+        u = ctx.mapUSUARIO
+
+        dt = datetime.today() + relativedelta(days=-30)
+
+        q = ctx.session.query(
+            a.ID_ABERTURA, 
+            a.DATA_ABERTURA, 
+            u.NOME_USUARIO
+        ).filter(*[
+            a.ID_USUARIO == u.ID_USUARIO,
+            a.DATA_ABERTURA > dt,
+            a.ID_USUARIO == u.ID_USUARIO
+        ]).all()
+
+        dados = [
+            HistoricoCaixas(
+                ID_CAIXA=item.ID_ABERTURA,
+                DATA_HORA=self.qBase.TrataDataHora_Caixa(item.DATA_ABERTURA),
+                DT = item.DATA_ABERTURA,
+                NOME_USUARIO=item.NOME_USUARIO
+            )
+            for item in q
+        ]
+
+        retorno = sorted(dados, key=lambda x: x.DT, reverse=True)
+
+        return retorno
+
+    async def getCaixaAberto(self, filtro: filtroCAIXA) -> aberturaCaixa:
+        a = ctx.mapAberturaCaixa
+
+        q = ctx.session.query(a).filter(
+            a.ID_CAIXA == filtro.ID_CAIXA,
+            a.STATUS_ABERTURA == 1
+        ).first()
+
+        return q
 
     def __del__(self):
         ctx.session.close_all()

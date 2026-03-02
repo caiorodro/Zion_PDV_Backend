@@ -38,6 +38,7 @@ from models.filtroReforco import filtroReforco
 from models.filtroSangria import filtroSangria
 from models.filtroTransporte import filtroTransporte
 from models.getProduto import getProduto
+from models.historicoCaixas import HistoricoCaixas
 from models.impressaoAvulsa import impressaoAvulsa
 from models.itemCaixa import itemCaixa
 from models.itemGrade import itemGrade
@@ -1362,5 +1363,20 @@ async def gravaDados_PagamentoAutorizado(dados: pagamentoAutorizado):
 
     finally:
         del ped
+
+    return retorno
+@router.get('/listaCaixasAnteriores')
+async def listaCaixasAnteriores() -> List[HistoricoCaixas]:
+    caixa = Caixa()
+
+    retorno = []
+
+    try:
+        retorno = await caixa.listaCaixasAnteriores()
+    except Exception as ex:
+        raise ex
+
+    finally:
+        del caixa
 
     return retorno

@@ -92,6 +92,19 @@ class qBase:
         )
 
         return retorno
+    
+    def TrataDataHora_Caixa(self, dt1=None):
+        if dt1 is None:
+            dt1 = datetime.datetime.now()
+
+        retorno = "{0}/{1}-{2}:{3}".format(
+            str(dt1.day).rjust(2, "0"),
+            str(dt1.month).rjust(2, "0"),
+            str(dt1.hour).rjust(2, "0"),
+            str(dt1.minute).rjust(2, "0")
+        )
+
+        return retorno
 
     def currency(self, _number):
 
