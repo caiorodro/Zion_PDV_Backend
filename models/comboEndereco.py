@@ -2,6 +2,7 @@ from dataclasses import dataclass
 
 @dataclass
 class comboEndereco:
+    ID_CLIENTE: int
     ID_ENDERECO: int
     ENDERECO: str
     NUMERO_ENDERECO: str

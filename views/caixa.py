@@ -77,7 +77,7 @@ class Caixa:
             u.USUARIO_CAIXA
         ).filter(
             *_filters
-        ).all()
+        ).order_by(a.DATA_ABERTURA).all()
 
         retorno = [
             listaDeCaixa(

@@ -61,6 +61,7 @@ class Cliente:
 
         retorno = [
             comboEndereco(
+                ID_CLIENTE=item.ID_CLIENTE,
                 ID_ENDERECO=item.ID_ENDERECO,
                 ENDERECO=item.ENDERECO,
                 NUMERO_ENDERECO=item.NUMERO_ENDERECO,
