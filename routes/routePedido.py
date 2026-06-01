@@ -17,6 +17,7 @@ from models.dadosTransporte import dadosTransporte
 from models.dadosUsuario import dadosUsuario
 from models.editCliente import editCliente
 from models.emissaoNFCe import emissaoNFCe
+from models.estoque import estoque
 from models.fechamentoCaixa import fechamentoCaixa
 from models.filtroCAIXA import filtroCAIXA
 from models.filtroCancelamento import filtroCancelamento
@@ -239,6 +240,21 @@ async def listUsuario():
 
     try:
         result = await _caixa.listUsuario()
+    except Exception as ex:
+        raise ex
+    finally:
+        del _caixa
+
+    return result
+
+
+@router.get("/getSenhaAdministrador")
+async def getSenhaAdministrador():
+    _caixa = Caixa()
+    result = None
+
+    try:
+        result = await _caixa.listSenhaAdministrador()
     except Exception as ex:
         raise ex
     finally:
@@ -1262,6 +1278,22 @@ def confereEstoque(items: List[produtoIDQtde]):
 
     try:
         retorno = ped.confereEstoque(items)
+    except Exception as ex:
+        raise ex
+
+    finally:
+        del ped
+
+    return retorno
+
+@router.post('/gravaEstoque')
+def gravaEstoque(dados: estoque):
+    ped = pedido()
+
+    retorno = False
+
+    try:
+        retorno = ped.gravaEstoque(dados)
     except Exception as ex:
         raise ex
 

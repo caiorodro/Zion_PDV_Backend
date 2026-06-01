@@ -46,6 +46,7 @@ from models.ultimosCaixas import ultimosCaixas
 from models.usuarioTipo import usuarioTipo
 
 class Caixa:
+
     def __init__(self, keep=None, idUser=None):
         self.qBase = qBase(keep)
         self.__listOfUsers = []
@@ -156,6 +157,22 @@ class Caixa:
                 ADMIN=False
             )
 
+        limiteAbertura = datetime.now() - timedelta(hours=24)
+
+        usuario = ctx.mapAberturaCaixa
+
+        aberturaRecente = ctx.session.query(usuario.ID_ABERTURA).filter(*[
+            usuario.ID_USUARIO == dados.ID_USUARIO,
+            usuario.DATA_ABERTURA >= limiteAbertura,
+            usuario.VALOR_FECHAMENTO == 0
+        ]).first()
+
+        if aberturaRecente is not None:
+            return usuarioTipo(
+                ID_CAIXA=-2,
+                ADMIN=False
+            )
+
         cmd = ctx.tb_abertura_caixa.insert().values(
             ID_ABERTURA=0,
             DATA_ABERTURA=datetime.strptime(dados.DATA_ABERTURA, "%d/%m/%Y %H:%M"),
@@ -205,6 +222,23 @@ class Caixa:
             listaDeUsuario(
                 ID_USUARIO=item.ID_USUARIO, NOME_USUARIO=item.NOME_USUARIO
             ).__dict__
+            for item in query
+        ]
+
+        return self.qBase.toRoute(retorno, 200)
+
+    async def listSenhaAdministrador(self):
+        u = ctx.mapUSUARIO
+
+        query = ctx.session.query(
+            u.ID_USUARIO,
+            u.SENHA_USUARIO
+        ).filter(
+            u.TIPO_USUARIO == 1
+        ).all()
+
+        retorno = [
+            {"SENHA_USUARIO": item.SENHA_USUARIO}
             for item in query
         ]
 
@@ -598,11 +632,27 @@ class Caixa:
 
         return retorno
 
+    def get_Usuario_Caixa_sem_acesso_fechamento(self, ID_CAIXA: int) -> bool:
+
+        ID_USUARIO = ctx.session.query(ctx.mapAberturaCaixa).filter(
+            ctx.mapAberturaCaixa.ID_ABERTURA == ID_CAIXA
+        ).first().ID_USUARIO
+
+        query = ctx.session.query(ctx.mapUSUARIO).filter(
+            ctx.mapUSUARIO.ID_USUARIO == ID_USUARIO
+        ).first()
+
+        usuarioCaixa = query.USUARIO_CAIXA == 1 and query.ACESSO_FECHAMENTO == 0
+
+        return usuarioCaixa
+
     def get_Total_Geral_Caixa(self, filtro: filtroFormasPagtoCaixa) -> float:
         p = ctx.mapPedido
         pg = ctx.mapPedidoPagamento
         s = ctx.mapSangria
         r = ctx.mapReforco
+
+        usuarioCaixa = self.get_Usuario_Caixa_sem_acesso_fechamento(filtro.ID_CAIXA)
 
         _filters = [
             p.STATUS_PEDIDO == 3,
@@ -656,7 +706,7 @@ class Caixa:
 
         TOTAL_FINAL = ((totalDePagamentos + REFORCO) - SANGRIA) - Troco
 
-        return round(TOTAL_FINAL, 2)
+        return 0.00 if usuarioCaixa else round(TOTAL_FINAL, 2)
 
     async def setImpressaoCaixa(self, filtro: filtroFormasPagtoCaixa):
         filtro.NUMERO_IMPRESSORA = 1 if filtro.NUMERO_IMPRESSORA == 0 else filtro.NUMERO_IMPRESSORA

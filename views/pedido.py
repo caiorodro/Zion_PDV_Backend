@@ -17,6 +17,7 @@ from models.dadosNFCe import dadosNFCe
 from models.dadosPedido import dadosPedido
 from models.editPedido import editItemPedido, editPedido, editPedidoPagamento
 from models.emissaoNFCe import emissaoNFCe
+from models.estoque import estoque
 from models.filaComanda import filaComanda
 from models.filtroCancelamento import filtroCancelamento
 from models.filtroIDPagamento import filtroIDPagamento
@@ -88,7 +89,7 @@ class pedido:
 
     def test_gravaPedido(self, order: Order):
 
-        consumidorFinal = asyncio.run(self.checaConsumidorFinal())
+        consumidorFinal = self.checaConsumidorFinal()
 
         if not isinstance(consumidorFinal, clienteEndereco):
             raise Exception('Cliente consumidor final não cadastrado')
@@ -315,6 +316,26 @@ class pedido:
 
     def test_baixaEstoque(self, item: itemPedido):
         assert self.baixaEstoque(item, 1) == True
+
+    def gravaEstoque(self, dados: estoque) -> bool:
+        cmd = ctx.tb_estoque.insert().values(
+            ID_ESTOQUE=dados.ID_ESTOQUE,
+            DATA_ESTOQUE=datetime.strptime(dados.DATA_ESTOQUE, "%d/%m/%Y %H:%M"),
+            ID_PRODUTO=dados.ID_PRODUTO,
+            MOVIMENTO=dados.MOVIMENTO,
+            QTDE_ESTOQUE=dados.QTDE_ESTOQUE,
+            ID_FORNECEDOR=dados.ID_FORNECEDOR,
+            ID_EMPRESA=dados.ID_EMPRESA,
+            SALDO=dados.SALDO,
+            NUMERO_COMANDA=dados.NUMERO_COMANDA,
+            PRECO_CUSTO=dados.PRECO_CUSTO,
+            CONTAGEM=dados.CONTAGEM,
+        )
+
+        ctx.session.execute(cmd)
+        ctx.session.commit()
+
+        return True
 
     def baixaEstoque(self, item: itemPedido, movimento: int) -> bool:
         tableCombo = ctx.mapComboProduto
@@ -865,28 +886,115 @@ class pedido:
 
         return lista
 
-    async def checaConsumidorFinal(self) -> clienteEndereco:
+    def checaConsumidorFinal(self) -> clienteEndereco:
+        empresa = ctx.session.query(ctx.mapEmpresa).first()
+
+        endereco_empresa = "ISENTO"
+        numero_endereco_empresa = "SN"
+        complemento_endereco_empresa = ""
+        bairro_empresa = "ISENTO"
+        cep_empresa = ""
+        municipio_empresa = ""
+        uf_empresa = ""
+        telefone_empresa = "11"
+        id_empresa = 1
+
+        if empresa is not None:
+            endereco_raw = (
+                empresa.ENDERECO.strip()
+                if isinstance(empresa.ENDERECO, str)
+                else ""
+            )
+
+            if len(endereco_raw) > 0:
+                partes_endereco = [item.strip() for item in endereco_raw.split(",")]
+
+                endereco_empresa = partes_endereco[0] if len(partes_endereco[0]) > 0 else "ISENTO"
+
+                if len(partes_endereco) > 1 and len(partes_endereco[1]) > 0:
+                    numero_endereco_empresa = self.qBase.onlyNumbers(partes_endereco[1]).strip()
+
+                if len(partes_endereco) > 2 and len(partes_endereco[2]) > 0:
+                    complemento_endereco_empresa = partes_endereco[2]
+
+                if len(numero_endereco_empresa) == 0:
+                    numero_endereco_empresa = "SN"
+
+            bairro_empresa = (
+                empresa.BAIRRO.strip()
+                if isinstance(empresa.BAIRRO, str) and len(empresa.BAIRRO.strip()) > 0
+                else "ISENTO"
+            )
+            cep_empresa = "" if empresa.CEP is None else str(empresa.CEP).strip()
+            municipio_empresa = "" if empresa.CIDADE is None else str(empresa.CIDADE).strip()
+            uf_empresa = "" if empresa.UF is None else str(empresa.UF).strip()
+            telefone_empresa = (
+                "11"
+                if empresa.TELEFONE is None or len(str(empresa.TELEFONE).strip()) == 0
+                else str(empresa.TELEFONE).strip()
+            )
+            id_empresa = 1 if empresa.ID_EMPRESA is None else int(empresa.ID_EMPRESA)
+
         cliente = (
             ctx.session.query(ctx.mapCliente)
             .filter(ctx.mapCliente.NOME_CLIENTE.like("%{}%".format("CONSUMIDOR FINAL")))
-            .all()
+            .first()
         )
 
-        if len(cliente) == 0:
-            return None
+        if cliente is None:
+            cmd_cliente = ctx.tb_cliente.insert().values(
+                NOME_CLIENTE="CONSUMIDOR FINAL",
+                ENDERECO_CLIENTE=endereco_empresa,
+                NUMERO_ENDERECO=numero_endereco_empresa,
+                COMPLEMENTO_ENDERECO=complemento_endereco_empresa,
+                BAIRRO_CLIENTE=bairro_empresa,
+                CEP_CLIENTE=cep_empresa,
+                MUNICIPIO_CLIENTE=municipio_empresa,
+                UF_CLIENTE=uf_empresa,
+                TELEFONE_CLIENTE=telefone_empresa,
+                EMAIL_CLIENTE="consumidorfinal@gmail.com",
+                ID_EMPRESA=id_empresa,
+                SENHA_CLIENTE="",
+                NICKNAME="",
+                METADE=1,
+                UM_TERCO=1,
+                CPF="ISENTO",
+                IE="ISENTO",
+                TAXA_ENTREGA=0,
+            )
 
-        ID_CLIENTE = [item for item in cliente][0].ID_CLIENTE
+            result_cliente = ctx.session.execute(cmd_cliente)
+            ID_CLIENTE = int(result_cliente.inserted_primary_key[0])
+        else:
+            ID_CLIENTE = int(cliente.ID_CLIENTE)
 
         endereco = (
             ctx.session.query(ctx.mapEnderecoCliente)
             .filter(ctx.mapEnderecoCliente.ID_CLIENTE == ID_CLIENTE)
-            .all()
+            .first()
         )
 
-        if len(endereco) == 0:
-            return None
+        if endereco is None:
+            cmd_endereco = ctx.tb_endereco_cliente.insert().values(
+                ID_CLIENTE=ID_CLIENTE,
+                ENDERECO=endereco_empresa,
+                NUMERO_ENDERECO=numero_endereco_empresa,
+                COMPLEMENTO_ENDERECO=complemento_endereco_empresa,
+                BAIRRO=bairro_empresa,
+                CEP=cep_empresa,
+                MUNICIPIO=municipio_empresa,
+                UF=uf_empresa,
+                ID_EMPRESA=id_empresa,
+                LATITUDE=0,
+                LONGITUDE=0,
+            )
 
-        ID_ENDERECO = [item for item in endereco][0].ID_ENDERECO
+            result_endereco = ctx.session.execute(cmd_endereco)
+            ctx.session.commit()
+            ID_ENDERECO = int(result_endereco.inserted_primary_key[0])
+        else:
+            ctx.session.commit()
+            ID_ENDERECO = int(endereco.ID_ENDERECO)
 
         return clienteEndereco(ID_CLIENTE=ID_CLIENTE, ID_ENDERECO=ID_ENDERECO)
 
@@ -1190,7 +1298,6 @@ class pedido:
         retorno = await self.retornoQueryPedidos(query)
 
         return retorno
-
 
     async def retornoQueryPedidos(self, query) -> List[listaDePedido]:
         e = ctx.mapEmpresa

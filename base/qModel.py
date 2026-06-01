@@ -80,7 +80,8 @@ tb_usuario = Table(
     Column("EMAIL_USUARIO", String(150), nullable=True),
     Column("USUARIO_ATIVO", Integer, nullable=True),
     Column("TIPO_USUARIO", Integer, nullable=True),
-    Column("USUARIO_CAIXA", Integer, nullable=True)
+    Column("USUARIO_CAIXA", Integer, nullable=True),
+    Column("ACESSO_FECHAMENTO", Integer, nullable=True)
 )
 
 tb_produto = Table(
@@ -359,6 +360,10 @@ tb_cliente = Table(
     Column("NOME_FANTASIA_CLIENTE", String(35), nullable=True),
     Column("OBS_CLIENTE", String(400), nullable=True),
     Column("TAXA_ENTREGA", DECIMAL, nullable=True),
+    Column("NICKNAME", String(50), nullable=True),
+    Column("METADE", DECIMAL, nullable=True),
+    Column("UM_TERCO", DECIMAL, nullable=True),
+    Column("SENHA_CLIENTE", String(50), nullable=True)
 )
 
 tb_endereco_cliente = Table(
