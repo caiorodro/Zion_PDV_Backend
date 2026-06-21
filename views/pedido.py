@@ -505,7 +505,8 @@ class pedido:
                         NUMERO_PEDIDO=_pedido.NUMERO_PEDIDO,
                         NOME_CLIENTE=self.getNomeCliente(_pedido.ID_CLIENTE),
                         ID_CLIENTE=_pedido.ID_CLIENTE,
-                        TOTAL_PEDIDO=_pedido.TOTAL_PEDIDO
+                        TOTAL_PEDIDO=_pedido.TOTAL_PEDIDO,
+                        LIMITE_MENSAL=_pedido.LIMITE_MENSAL
                     ), 
                     itemsFinanceiro, 
                     pedidoPagamentoFinanceiro(
@@ -516,32 +517,41 @@ class pedido:
 
                 return True
 
-            if formaPagto[0].VALE_FUNCIONARIO == 1:
-                itemsFinanceiro = [
-                    itemPedidoFinanceiro(
-                        PRODUTO= self.getDescricaoProduto(item.ID_PRODUTO),
-                        QTDE=item.QTDE
-                    )
-                    for item in itemsPedido
-                ]
+        valorLimite = 0.00
 
-                result = self.insereValeFuncionario(
-                    pedidoFinanceiro(
-                        NUMERO_PEDIDO=_pedido.NUMERO_PEDIDO,
-                        NOME_CLIENTE=self.getNomeCliente(_pedido.ID_CLIENTE),
-                        ID_CLIENTE=_pedido.ID_CLIENTE,
-                        TOTAL_PEDIDO=_pedido.TOTAL_PEDIDO
-                    ), 
-                    itemsFinanceiro, 
-                    pedidoPagamentoFinanceiro(
-                        VALOR_PAGO=pagamento.VALOR_PAGO,
-                        NUMERO_PEDIDO=pagamento.NUMERO_PEDIDO
-                    )
+        if _pedido.LIMITE_MENSAL > 0.00:
+            valorLimite = _pedido.LIMITE_MENSAL
+
+        if valorLimite == 0.00 and formaPagto[0].VALE_FUNCIONARIO == 1:
+            valorLimite = formaPagto[0].VALOR_DIA if formaPagto[0].VALOR_DIA is not None else 0.00
+
+        if valorLimite > 0.00:
+            itemsFinanceiro = [
+                itemPedidoFinanceiro(
+                    PRODUTO= self.getDescricaoProduto(item.ID_PRODUTO),
+                    QTDE=item.QTDE
                 )
+                for item in itemsPedido
+            ]
 
-                if isinstance(result, str):
-                    ctx.session.rollback()
-                    return result
+            result = self.insereValeFuncionario(
+                pedidoFinanceiro(
+                    NUMERO_PEDIDO=_pedido.NUMERO_PEDIDO,
+                    NOME_CLIENTE=self.getNomeCliente(_pedido.ID_CLIENTE),
+                    ID_CLIENTE=_pedido.ID_CLIENTE,
+                    TOTAL_PEDIDO=_pedido.TOTAL_PEDIDO,
+                    LIMITE_MENSAL=_pedido.LIMITE_MENSAL
+                ), 
+                itemsFinanceiro, 
+                pedidoPagamentoFinanceiro(
+                    VALOR_PAGO=pagamento.VALOR_PAGO,
+                    NUMERO_PEDIDO=pagamento.NUMERO_PEDIDO
+                )
+            )
+
+            if isinstance(result, str):
+                ctx.session.rollback()
+                return result
 
             self.inserePagtoCartao(_pedido, itemsPedido, pagamento)
 
@@ -841,7 +851,7 @@ class pedido:
         if valorMaximoMensal is None:
             valorMaximoMensal = 0.00
 
-        valorMaximoMensal = float(valorMaximoMensal)
+        valorMaximoMensal = pedido.LIMITE_MENSAL
 
         if totalVendas > valorMaximoMensal:
             return '\n'.join((
@@ -1747,7 +1757,8 @@ class pedido:
                 NUMERO_PEDIDO=NUMERO_PEDIDO,
                 NOME_CLIENTE=nomeCliente,
                 ID_CLIENTE=idCliente,
-                TOTAL_PEDIDO=_totalPedido
+                TOTAL_PEDIDO=_totalPedido,
+                LIMITE_MENSAL=0
             ),
             itemsPedido,
             recordPagamento

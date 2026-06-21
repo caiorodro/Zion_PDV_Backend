@@ -56,3 +56,4 @@ class pedido:
     TEMPO_ENTREGA_PEDIDO: str
     ID_PEDIDO_LOCAL: int
     ID_TERMINAL: int
+    LIMITE_MENSAL: float

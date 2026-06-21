@@ -1223,9 +1223,10 @@ class Caixa:
     async def checaSenhaReset(self, dados: senhaReset) -> bool:
         u = ctx.mapUSUARIO
 
-        passwordOk = ctx.session.query(u).filter(
-            u.SENHA_USUARIO == dados.SENHA
-        ).first()
+        passwordOk = ctx.session.query(u).filter(*[
+            u.SENHA_USUARIO == dados.SENHA,
+            u.TIPO_USUARIO == 1
+        ]).first()
 
         return passwordOk is not None
 

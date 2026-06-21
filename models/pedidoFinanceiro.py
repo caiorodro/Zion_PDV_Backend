@@ -6,3 +6,4 @@ class pedidoFinanceiro:
     NOME_CLIENTE: str
     ID_CLIENTE: int
     TOTAL_PEDIDO: float
+    LIMITE_MENSAL: float
