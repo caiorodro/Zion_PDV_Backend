@@ -1,9 +1,17 @@
-from datetime import datetime, timedelta
 from typing import List
 
-import base.qModel as ctx
 from base.qBase import qBase
 from cfg.config import Config
+
+from infra.repositories.clienteRepository import ClienteRepository
+from infra.repositories.empresaRepository import EmpresaRepository
+from infra.repositories.enderecoClienteRepository import EnderecoClienteRepository
+from infra.repositories.itemPedidoRepository import ItemPedidoRepository
+from infra.repositories.pedidoPagamentoRepository import PedidoPagamentoRepository
+from infra.repositories.pedidoRepository import PedidoRepository
+from infra.repositories.produtoRepository import ProdutoRepository
+from infra.repositories.transporteRepository import TransporteRepository
+from infra.repositories.tributoRepository import TributoRepository
 
 from nfe.models.dadosEmitente import dadosEmitente
 from nfe.models.dadosPedido import dadosPedido
@@ -17,20 +25,28 @@ from nfe.models.idEmitente import idEmitente
 class NFCe:
     def __init__(self):
         self.config = Config()
-        self.qBase = qBase
+        self.qBase = qBase()
+
+        self._empresas = EmpresaRepository()
+        self._tributos = TributoRepository()
+        self._pedidos = PedidoRepository()
+        self._itensPedido = ItemPedidoRepository()
+        self._pagamentos = PedidoPagamentoRepository()
+        self._enderecos = EnderecoClienteRepository()
+        self._clientes = ClienteRepository()
+        self._transportes = TransporteRepository()
+        self._produtos = ProdutoRepository()
 
     async def getDadosEmitente(self, id: idEmitente) -> dadosEmitente:
-        e = ctx.mapEmpresa
-
-        query = ctx.session.query(e).all()
+        query = self._empresas.listar_todas()
 
         rec = list(
             filter(lambda e: self.qBase.onlyNumbers(e.CNPJ) == self.qBase.onlyNumbers(id.CNPJ), query)
         )
-        
+
         if len(rec) == 0:
             raise Exception(f'Não há emitente cadastrado com o CNPJ {id.CNPJ}')
-        
+
         item = rec[0]
 
         endereco = item.ENDERECO.split(',')[0]
@@ -56,8 +72,8 @@ class NFCe:
         )
 
         return retorno
-    
-    async def getRecordTributo(self, ID_TRIBUTO: int, tributos: List[ctx.mapTributo]) -> ctx.mapTributo:
+
+    async def getRecordTributo(self, ID_TRIBUTO: int, tributos: List) -> object:
         retorno = list(filter(lambda e: e.ID_TRIBUTO == ID_TRIBUTO, tributos))[0]
 
         if retorno.ALIQ_ICMS is None:
@@ -74,8 +90,8 @@ class NFCe:
         retorno.ALIQ_COFINS = float(retorno.ALIQ_COFINS)
 
         return retorno
-    
-    async def prepareItem(self, item: ctx.mapItemPedido, tributos: ctx.mapTributo) -> itemPedido:
+
+    async def prepareItem(self, item, tributos: List) -> itemPedido:
 
         recTributo = await self.getRecordTributo(item.ID_TRIBUTO, tributos)
 
@@ -103,58 +119,27 @@ class NFCe:
                 ID_ITEM_LOCAL = 0,
                 ID_TERMINAL = 0
             )
-        
+
         return retorno
-        
+
     async def getPedidoParaEmissao(self, filtro: filtroNumeroPedido) -> dadosPedido:
-        p = ctx.mapPedido
-        ip = ctx.mapItemPedido
-        pg = ctx.mapPedidoPagamento
-        t = ctx.mapTributo
-        e = ctx.mapEnderecoCliente
-        c = ctx.mapCliente
+        rec = self._pedidos.buscar_por_numero(filtro.NUMERO_PEDIDO)
 
-        filters = [p.NUMERO_PEDIDO == filtro.NUMERO_PEDIDO]
-
-        pedido = (
-            ctx.session.query(
-                p.NUMERO_PEDIDO,
-                p.ID_CLIENTE,
-                p.ID_ENDERECO,
-                p.NOME_CLIENTE,
-                p.ID_TRANSPORTE,
-                p.ID_CAIXA,
-                p.ORIGEM,
-                p.TAXA_ENTREGA,
-                p.ADICIONAL,
-                p.DESCONTO,
-                p.INFO_ADICIONAL
-            )
-            .filter(*filters)
-            .all()
-        )
-
-        if len(pedido) == 0:
+        if rec is None:
             raise Exception("Pedido não encontrado na base do sistema")
 
-        items = ctx.session.query(ip).filter(
-            ip.NUMERO_PEDIDO == filtro.NUMERO_PEDIDO
-        ).all()
+        items = self._itensPedido.listar_por_pedido(filtro.NUMERO_PEDIDO)
 
         if len(items) == 0:
             raise Exception("O pedido não contém itens para a emissão da NFC-e")
 
-        idsTributo = set([item.ID_TRIBUTO for item in items])
+        idsTributo = list(set([item.ID_TRIBUTO for item in items]))
 
-        tributos = ctx.session.query(t).filter(
-            t.ID_TRIBUTO.in_(idsTributo)
-        ).all()
+        tributos = self._tributos.listar_por_ids(idsTributo)
 
         itemsPedido = [await self.prepareItem(item, tributos) for item in items]
 
-        pag = ctx.session.query(pg).filter(
-            pg.NUMERO_PEDIDO == filtro.NUMERO_PEDIDO
-        ).all()
+        pag = self._pagamentos.listar_por_pedido(filtro.NUMERO_PEDIDO)
 
         _pagamentos = [
             pagamentoPedido(
@@ -170,15 +155,9 @@ class NFCe:
         if len(_pagamentos) == 0:
             raise Exception("O pedido não contém registros de pagamento")
 
-        rec = pedido[0]
+        endereco = self._enderecos.buscar_por_id(rec.ID_ENDERECO)
 
-        endereco = ctx.session.query(e).filter(
-            e.ID_ENDERECO == rec.ID_ENDERECO
-        ).first()
-
-        cliente = ctx.session.query(c).filter(
-            c.ID_CLIENTE == rec.ID_CLIENTE
-        ).first()
+        cliente = self._clientes.buscar_por_id(rec.ID_CLIENTE)
 
         logradouro = endereco.ENDERECO
         logradouro = logradouro[0: logradouro.index(',')] if ',' in logradouro else logradouro
@@ -217,39 +196,19 @@ class NFCe:
 
         return retorno
 
-    async def getItemPedido(self, item: ctx.mapItemPedido) -> str:
+    async def getItemPedido(self, item) -> str:
 
         obsItem = item.OBS_ITEM if item.OBS_ITEM is not None else ''
-        
+
         retorno = await self.getDescricaoProduto(item.ID_PRODUTO) + f' {obsItem}'
 
         return retorno.strip()
-    
+
     async def getDescricaoProduto(self, ID_PRODUTO) -> str:
-        rec = (
-            ctx.session.query(ctx.mapProduto)
-            .filter(ctx.mapProduto.ID_PRODUTO == ID_PRODUTO)
-            .first()
-        )
-
-        descricaoProduto = "" if rec is None else rec.DESCRICAO_PRODUTO
-
-        return descricaoProduto
+        return self._produtos.descricao_por_id_ou_vazio(ID_PRODUTO)
 
     async def getNomeTransporte(self, ID_TRANSPORTE: int) -> str:
-        t = ctx.mapTransporte
-
-        query = ctx.session.query(t).filter(t.ID_TRANSPORTE == ID_TRANSPORTE).all()
-
-        return query[0].NOME_TRANSPORTE if len(query) > 0 else ""
+        return self._transportes.nome_por_id(ID_TRANSPORTE)
 
     async def getNomeCliente(self, ID_CLIENTE: int) -> str:
-        t = ctx.mapCliente
-
-        query = ctx.session.query(t).filter(t.ID_CLIENTE == ID_CLIENTE).all()
-
-        return query[0].NOME_CLIENTE if len(query) > 0 else ""
-
-
-    def __del__(self):
-        ctx.session.close_all()
+        return self._clientes.nome_por_id(ID_CLIENTE)

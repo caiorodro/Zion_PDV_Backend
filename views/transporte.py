@@ -1,7 +1,7 @@
 from typing import List
 
-import base.qModel as ctx
 from base.qBase import qBase
+from infra.repositories.transporteRepository import TransporteRepository
 from models.comboTransporte import comboTransporte
 from models.dadosTransporte import dadosTransporte
 from models.filtroTransporte import filtroTransporte
@@ -11,13 +11,10 @@ from models.listaDeTransporte import listaDeTransporte
 class Transporte:
     def __init__(self, keep=None, idUser=None):
         self.qBase = qBase(keep)
+        self._repo = TransporteRepository()
 
     async def buscaTransporte(self, filtro: filtroTransporte) -> List[comboTransporte]:
-        c = ctx.mapTransporte
-
-        filters = [c.NOME_TRANSPORTE.like(f"%{filtro.FILTRO}%")]
-
-        query = ctx.session.query(c).filter(*filters).limit(150).all()
+        query = self._repo.buscar_por_nome(filtro.FILTRO)
 
         retorno = [
             comboTransporte(
@@ -29,54 +26,15 @@ class Transporte:
         return retorno
 
     async def gravaDadosTransporte(self, dados: dadosTransporte):
-        c = ctx.mapTransporte
-
-        cmd = None
-        idTransporte = dados.ID_TRANSPORTE
-
-        if idTransporte == 0:
-            cmd = ctx.tb_transporte.insert().values(
-                ID_TRANSPORTE=0,
-                NOME_TRANSPORTE=dados.NOME_TRANSPORTE,
-                CNPJ=dados.CNPJ,
-                IE=dados.IE,
-                ENDERECO=dados.ENDERECO,
-                CIDADE=dados.CIDADE,
-                UF=dados.UF,
-                PLACA=dados.PLACA,
-                EMAIL=dados.EMAIL,
-            )
-
-        elif idTransporte > 0:
-            cmd = (
-                ctx.tb_transporte.update()
-                .values(
-                    NOME_TRANSPORTE=dados.NOME_TRANSPORTE,
-                    CNPJ=dados.CNPJ,
-                    IE=dados.IE,
-                    ENDERECO=dados.ENDERECO,
-                    CIDADE=dados.CIDADE,
-                    UF=dados.UF,
-                    PLACA=dados.PLACA,
-                    EMAIL=dados.EMAIL,
-                )
-                .where(c.ID_TRANSPORTE == idTransporte)
-            )
-
-        ctx.session.execute(cmd)
-        ctx.session.commit()
+        if dados.ID_TRANSPORTE == 0:
+            self._repo.inserir(dados)
+        elif dados.ID_TRANSPORTE > 0:
+            self._repo.atualizar(dados)
 
     async def listaTransporte(
         self, filtro: filtroTransporte
     ) -> List[listaDeTransporte]:
-        c = ctx.mapTransporte
-
-        filters = []
-
-        if len(filtro.FILTRO) > 0:
-            filters.append((c.NOME_TRANSPORTE.like(f"%{filtro.FILTRO}%")))
-
-        query = ctx.session.query(c).filter(*filters).limit(200).all()
+        query = self._repo.listar(filtro.FILTRO)
 
         retorno = [
             listaDeTransporte(
@@ -88,16 +46,10 @@ class Transporte:
         return retorno
 
     async def editTransporte(self, filtro: filtroTransporte) -> dadosTransporte:
-        c = ctx.mapTransporte
+        rec = self._repo.buscar_por_id(int(filtro.FILTRO))
 
-        query1 = (
-            ctx.session.query(c).filter(c.ID_TRANSPORTE == int(filtro.FILTRO)).all()
-        )
-
-        if len(query1) == 0:
+        if rec is None:
             raise Exception("Transporte não encontrado na base")
-
-        rec = query1[0]
 
         cliente = dadosTransporte(
             ID_TRANSPORTE=rec.ID_TRANSPORTE,
@@ -112,6 +64,3 @@ class Transporte:
         )
 
         return cliente
-
-    def __del__(self):
-        ctx.session.close_all()

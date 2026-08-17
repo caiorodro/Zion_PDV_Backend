@@ -13,3 +13,4 @@ class totaisPorFormaPagto:
     DIFERENCA: float
     TOTAL_GERAL: float
     VALOR_ABERTURA: float
+    SEM_ACESSO_FECHAMENTO: bool

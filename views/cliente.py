@@ -1,7 +1,10 @@
 from typing import List
 
-import base.qModel as ctx
 from base.qBase import qBase
+from infra.repositories.clienteRepository import ClienteRepository
+from infra.repositories.enderecoClienteRepository import EnderecoClienteRepository
+from infra.repositories.pedidoRepository import PedidoRepository, PEDIDO_NAO_ENCONTRADO
+from infra.repositories.transporteRepository import TransporteRepository
 from models.Cliente_Endereco_Transporte import Cliente_Endereco_Transporte
 from models.comboCliente import comboCliente
 from models.comboClienteEndereco import comboClienteEndereco
@@ -19,23 +22,19 @@ from models.listaDeCliente import listaDeCliente
 class Cliente:
     def __init__(self, keep=None, idUser=None):
         self.qBase = qBase(keep)
+        self._clientes = ClienteRepository()
+        self._enderecos = EnderecoClienteRepository()
+        self._transportes = TransporteRepository()
+        self._pedidos = PedidoRepository()
 
     async def buscaCliente(self, filtro: filtroCliente) -> List[comboCliente]:
-        c = ctx.mapCliente
-
-        filters = [c.CPF == filtro.FILTRO]
-
-        query = ctx.session.query(c).filter(*filters).all()
+        query = self._clientes.buscar_por_cpf(filtro.FILTRO)
 
         if len(query) == 0:
-            filters = [c.TELEFONE_CLIENTE == filtro.FILTRO]
-
-            query = ctx.session.query(c).filter(*filters).all()
+            query = self._clientes.buscar_por_telefone(filtro.FILTRO)
 
         if len(query) == 0:
-            filters = [c.NOME_CLIENTE.like(f"%{filtro.FILTRO}%")]
-
-            query = ctx.session.query(c).filter(*filters).limit(150).all()
+            query = self._clientes.buscar_por_nome(filtro.FILTRO)
 
         retorno = [
             comboCliente(
@@ -50,14 +49,7 @@ class Cliente:
         return retorno
 
     async def buscaEndereco(self, filtro: filtroEndereco) -> List[comboEndereco]:
-        e = ctx.mapEnderecoCliente
-
-        filters = [
-            e.ID_CLIENTE == filtro.ID_CLIENTE,
-            e.ENDERECO.like(f"%{filtro.FILTRO}%"),
-        ]
-
-        query = ctx.session.query(e).filter(*filters).limit(20).all()
+        query = self._enderecos.buscar(filtro.ID_CLIENTE, filtro.FILTRO)
 
         retorno = [
             comboEndereco(
@@ -77,42 +69,22 @@ class Cliente:
         return retorno
 
     async def getAllAddresses(self) -> List[comboClienteEndereco]:
-        e = ctx.mapEnderecoCliente
-        c = ctx.mapCliente
-
-        filters = [
-            e.ID_CLIENTE == c.ID_CLIENTE
-        ]
-
-        query = ctx.session.query(
-            e.ID_ENDERECO,
-            e.ID_CLIENTE,
-            c.NOME_CLIENTE,
-            c.CPF,
-            c.TELEFONE_CLIENTE,
-            e.ENDERECO,
-            e.NUMERO_ENDERECO,
-            e.COMPLEMENTO_ENDERECO,
-            e.BAIRRO,
-            e.CEP,
-            e.MUNICIPIO,
-            e.UF
-        ).filter(*filters).all()
+        query = self._enderecos.listar_todos_com_cliente()
 
         retorno = [
             comboClienteEndereco(
-                ID_ENDERECO=item.ID_ENDERECO,
-                ID_CLIENTE=item.ID_CLIENTE,
-                NOME_CLIENTE=item.NOME_CLIENTE,
-                CPF=item.CPF if item.CPF is not None else "",
-                TELEFONE_CLIENTE=item.TELEFONE_CLIENTE if item.TELEFONE_CLIENTE is not None else "",
-                ENDERECO=item.ENDERECO,
-                NUMERO_ENDERECO=item.NUMERO_ENDERECO,
-                COMPLEMENTO_ENDERECO=item.COMPLEMENTO_ENDERECO,
-                BAIRRO=item.BAIRRO,
-                CEP=item.CEP,
-                CIDADE=item.MUNICIPIO,
-                UF=item.UF
+                ID_ENDERECO=item["ID_ENDERECO"],
+                ID_CLIENTE=item["ID_CLIENTE"],
+                NOME_CLIENTE=item["NOME_CLIENTE"],
+                CPF=item["CPF"] if item["CPF"] is not None else "",
+                TELEFONE_CLIENTE=item["TELEFONE_CLIENTE"] if item["TELEFONE_CLIENTE"] is not None else "",
+                ENDERECO=item["ENDERECO"],
+                NUMERO_ENDERECO=item["NUMERO_ENDERECO"],
+                COMPLEMENTO_ENDERECO=item["COMPLEMENTO_ENDERECO"],
+                BAIRRO=item["BAIRRO"],
+                CEP=item["CEP"],
+                CIDADE=item["MUNICIPIO"],
+                UF=item["UF"]
             ).__dict__
             for item in query
         ]
@@ -124,52 +96,32 @@ class Cliente:
     async def get_Dados_Cliente_Endereco_Transporte(
         self, dados: Cliente_Endereco_Transporte
     ) -> Cliente_Endereco_Transporte:
-        c = ctx.mapCliente
-        e = ctx.mapEnderecoCliente
-        t = ctx.mapTransporte
-
-        cliente = (
-            ctx.session.query(c.ID_CLIENTE, c.NOME_CLIENTE, c.TELEFONE_CLIENTE)
-            .filter(c.ID_CLIENTE == dados.ID_CLIENTE)
-            .all()
-        )
-
-        endereco = (
-            ctx.session.query(
-                e.ID_ENDERECO, e.ENDERECO, e.NUMERO_ENDERECO, e.COMPLEMENTO_ENDERECO
-            )
-            .filter(e.ID_ENDERECO == dados.ID_ENDERECO)
-            .all()
-        )
-
-        transporte = (
-            ctx.session.query(t.ID_TRANSPORTE, t.NOME_TRANSPORTE)
-            .filter(t.ID_TRANSPORTE == dados.ID_TRANSPORTE)
-            .all()
-        )
+        cliente = self._clientes.buscar_por_id(dados.ID_CLIENTE)
+        endereco = self._enderecos.buscar_por_id(dados.ID_ENDERECO)
+        transporte = self._transportes.buscar_por_id(dados.ID_TRANSPORTE)
 
         e1 = (0, "")
         t1 = (0, "")
 
-        if len(endereco) > 0:
+        if endereco is not None:
             e1 = (
-                endereco[0].ID_ENDERECO,
+                endereco.ID_ENDERECO,
                 " ".join(
                     (
-                        endereco[0].ENDERECO,
-                        endereco[0].NUMERO_ENDERECO,
-                        endereco[0].COMPLEMENTO_ENDERECO,
+                        endereco.ENDERECO,
+                        endereco.NUMERO_ENDERECO,
+                        endereco.COMPLEMENTO_ENDERECO,
                     )
                 ),
             )
 
-        if len(transporte) > 0:
-            t1 = (transporte[0].ID_TRANSPORTE, transporte[0].NOME_TRANSPORTE)
+        if transporte is not None:
+            t1 = (transporte.ID_TRANSPORTE, transporte.NOME_TRANSPORTE)
 
         retorno = Cliente_Endereco_Transporte(
-            ID_CLIENTE=cliente[0].ID_CLIENTE,
+            ID_CLIENTE=cliente.ID_CLIENTE,
             NOME_CLIENTE="".join(
-                (cliente[0].NOME_CLIENTE, f", Tel: {cliente[0].TELEFONE_CLIENTE}")
+                (cliente.NOME_CLIENTE, f", Tel: {cliente.TELEFONE_CLIENTE}")
             ),
             ID_ENDERECO=e1[0],
             ENDERECO=e1[1],
@@ -180,131 +132,28 @@ class Cliente:
         return retorno
 
     async def getFiscalCliente(self, filtro: filtroNumeroPedido) -> fiscalCliente:
-        p = ctx.mapPedido
+        cpf = self._pedidos.cpf_por_numero_pedido(int(filtro.NUMERO_PEDIDO))
 
-        query = ctx.session.query(p).filter(
-            p.NUMERO_PEDIDO == int(filtro.NUMERO_PEDIDO)
-        ).all()
-
-        return fiscalCliente(CPF=query[0].CPF if len(query) > 0 else "")
+        return fiscalCliente(CPF="" if cpf is PEDIDO_NAO_ENCONTRADO else cpf)
 
     async def gravaDadosCliente(self, dados: editCliente):
         cliente = dados.cliente
         endereco = dados.endereco[0]
 
-        c = ctx.mapCliente
-        e = ctx.mapEnderecoCliente
-
-        cmd = None
         idCliente = cliente.ID_CLIENTE
 
         if cliente.ID_CLIENTE == 0:
-            cmd = ctx.tb_cliente.insert().values(
-                ID_CLIENTE=cliente.ID_CLIENTE,
-                NOME_CLIENTE=cliente.NOME_CLIENTE,
-                CPF=cliente.CPF,
-                ENDERECO_CLIENTE=cliente.ENDERECO_CLIENTE,
-                NUMERO_ENDERECO=cliente.NUMERO_ENDERECO,
-                COMPLEMENTO_ENDERECO=cliente.COMPLEMENTO_ENDERECO,
-                BAIRRO_CLIENTE=cliente.BAIRRO_CLIENTE,
-                CEP_CLIENTE=cliente.CEP_CLIENTE,
-                MUNICIPIO_CLIENTE=cliente.MUNICIPIO_CLIENTE,
-                UF_CLIENTE=cliente.UF_CLIENTE,
-                TELEFONE_CLIENTE=cliente.TELEFONE_CLIENTE,
-                EMAIL_CLIENTE=cliente.EMAIL_CLIENTE,
-                ID_EMPRESA=cliente.ID_EMPRESA,
-                IE=cliente.IE,
-                BLACK_LIST=cliente.BLACK_LIST,
-                NOME_FANTASIA_CLIENTE=cliente.NOME_FANTASIA_CLIENTE,
-                OBS_CLIENTE=cliente.OBS_CLIENTE,
-                TAXA_ENTREGA=cliente.TAXA_ENTREGA,
-            )
-
-            result = ctx.session.execute(cmd)
-
-            idCliente = int(result.inserted_primary_key[0])
-
+            idCliente = self._clientes.inserir(cliente)
         elif cliente.ID_CLIENTE > 0:
-            cmd = (
-                ctx.tb_cliente.update()
-                .values(
-                    NOME_CLIENTE=cliente.NOME_CLIENTE,
-                    CPF=cliente.CPF,
-                    ENDERECO_CLIENTE=cliente.ENDERECO_CLIENTE,
-                    NUMERO_ENDERECO=cliente.NUMERO_ENDERECO,
-                    COMPLEMENTO_ENDERECO=cliente.COMPLEMENTO_ENDERECO,
-                    BAIRRO_CLIENTE=cliente.BAIRRO_CLIENTE,
-                    CEP_CLIENTE=cliente.CEP_CLIENTE,
-                    MUNICIPIO_CLIENTE=cliente.MUNICIPIO_CLIENTE,
-                    UF_CLIENTE=cliente.UF_CLIENTE,
-                    TELEFONE_CLIENTE=cliente.TELEFONE_CLIENTE,
-                    EMAIL_CLIENTE=cliente.EMAIL_CLIENTE,
-                    ID_EMPRESA=cliente.ID_EMPRESA,
-                    IE=cliente.IE,
-                    BLACK_LIST=cliente.BLACK_LIST,
-                    NOME_FANTASIA_CLIENTE=cliente.NOME_FANTASIA_CLIENTE,
-                    OBS_CLIENTE=cliente.OBS_CLIENTE,
-                    TAXA_ENTREGA=cliente.TAXA_ENTREGA,
-                )
-                .where(c.ID_CLIENTE == cliente.ID_CLIENTE)
-            )
-
-            ctx.session.execute(cmd)
-
-        cmd1 = None
+            self._clientes.atualizar(cliente)
 
         if endereco.ID_ENDERECO == 0:
-            cmd1 = ctx.tb_endereco_cliente.insert().values(
-                ID_ENDERECO=endereco.ID_ENDERECO,
-                ID_CLIENTE=idCliente,
-                ENDERECO=endereco.ENDERECO,
-                NUMERO_ENDERECO=endereco.NUMERO_ENDERECO,
-                COMPLEMENTO_ENDERECO=endereco.COMPLEMENTO_ENDERECO,
-                BAIRRO=endereco.BAIRRO,
-                CEP=endereco.CEP,
-                MUNICIPIO=endereco.MUNICIPIO,
-                UF=endereco.UF,
-                ID_EMPRESA=endereco.ID_EMPRESA,
-                LATITUDE=endereco.LATITUDE,
-                LONGITUDE=endereco.LONGITUDE,
-            )
-
+            self._enderecos.inserir(endereco, idCliente)
         elif endereco.ID_ENDERECO > 0:
-            cmd1 = (
-                ctx.tb_endereco_cliente.update()
-                .values(
-                    ID_ENDERECO=endereco.ID_ENDERECO,
-                    ID_CLIENTE=idCliente,
-                    ENDERECO=endereco.ENDERECO,
-                    NUMERO_ENDERECO=endereco.NUMERO_ENDERECO,
-                    COMPLEMENTO_ENDERECO=endereco.COMPLEMENTO_ENDERECO,
-                    BAIRRO=endereco.BAIRRO,
-                    CEP=endereco.CEP,
-                    MUNICIPIO=endereco.MUNICIPIO,
-                    UF=endereco.UF,
-                    ID_EMPRESA=endereco.ID_EMPRESA,
-                    LATITUDE=endereco.LATITUDE,
-                    LONGITUDE=endereco.LONGITUDE,
-                )
-                .where(e.ID_ENDERECO == endereco.ID_ENDERECO)
-            )
-
-        ctx.session.execute(cmd1)
-        ctx.session.commit()
+            self._enderecos.atualizar(endereco, idCliente)
 
     async def listaCliente(self, filtro: filtroCliente) -> List[listaDeCliente]:
-        c = ctx.mapCliente
-
-        filters = []
-
-        if len(filtro.FILTRO) > 0:
-            filters.append(
-                (c.NOME_CLIENTE.like(f"%{filtro.FILTRO}%"))
-                | (c.NOME_FANTASIA_CLIENTE.like(f"%{filtro.FILTRO}%"))
-                | (c.TELEFONE_CLIENTE.like(f"%{filtro.FILTRO}%"))
-            )
-
-        query = ctx.session.query(c).filter(*filters).limit(200).all()
+        query = self._clientes.listar(filtro.FILTRO)
 
         retorno = [
             listaDeCliente(
@@ -323,15 +172,10 @@ class Cliente:
         return retorno
 
     async def editCliente(self, filtro: filtroCliente) -> editCliente:
-        c = ctx.mapCliente
-        e = ctx.mapEnderecoCliente
+        rec = self._clientes.buscar_por_id(int(filtro.FILTRO))
 
-        query1 = ctx.session.query(c).filter(c.ID_CLIENTE == int(filtro.FILTRO)).all()
-
-        if len(query1) == 0:
+        if rec is None:
             raise Exception("Cliente não encontrado na base")
-
-        rec = query1[0]
 
         cliente = dadosCliente(
             ID_CLIENTE=rec.ID_CLIENTE,
@@ -362,7 +206,7 @@ class Cliente:
             TAXA_ENTREGA=0 if rec.TAXA_ENTREGA is None else rec.TAXA_ENTREGA,
         )
 
-        query2 = ctx.session.query(e).filter(e.ID_CLIENTE == int(filtro.FILTRO)).all()
+        query2 = self._enderecos.listar_por_cliente(int(filtro.FILTRO))
 
         endereco = [
             dadosEndereco(
@@ -387,11 +231,3 @@ class Cliente:
         ]
 
         return editCliente(cliente=cliente, endereco=endereco)
-
-    def __del__(self):
-        try:
-            ctx.session.rollback()
-        except:
-            pass
-
-        ctx.session.close_all()

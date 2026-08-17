@@ -2,6 +2,7 @@ import json
 import os
 from models.statusDePedido import statusDePedido
 from models.prefServer import prefServer
+from infra.db import DB_HOST, DB_PORT, DB_NAME as _DB_NAME, DB_USER, DB_PASSWORD
 
 class Config(object):
     DEBUG = False
@@ -10,11 +11,12 @@ class Config(object):
         "B\xe58\xcf\x95\x91q\xde\xbf\x96lD\x1eA\x0fkC\xcaO\x10\xd6\x1a8\xf1\xfc"
     )
 
-    PORT_MYSQL = 3306
-    DB_SERVER_NAME = f"localhost:{PORT_MYSQL}"
-    DB_NAME = "zion"
-    DB_USERNAME = "root"
-    DB_PASSWORD = "56Runna01"
+    # Credenciais de banco: nunca em texto puro aqui — vêm do .env via infra/db.py.
+    PORT_MYSQL = DB_PORT
+    DB_SERVER_NAME = f"{DB_HOST}:{DB_PORT}"
+    DB_NAME = _DB_NAME
+    DB_USERNAME = DB_USER
+    DB_PASSWORD = DB_PASSWORD
 
     ZIP_ADDRESS = "http://192.168.0.110:1199/csv/"
     URL_PRODUTOS = "app/templates/assets/images/"
@@ -78,10 +80,8 @@ class DevelopmentConfig(Config):
         "B\xe58\xcf\x95\x91q\xde\xbf\x96lD\x1eA\x0fkC\xcaO\x10\xd6\x1a8\xf1\xfc"
     )
 
-    DB_SERVER_NAME = "localhost:3306"
-    DB_NAME = "zion"
-    DB_USERNAME = "root"
-    DB_PASSWORD = "56Runna01"
+    # DB_SERVER_NAME / DB_NAME / DB_USERNAME / DB_PASSWORD: herdados de Config,
+    # vindos do .env via infra/db.py — nunca texto puro aqui.
 
     ZIP_ADDRESS = "http://192.168.15.5:1199/csv/"
 
@@ -94,10 +94,9 @@ class DevelopmentConfig(Config):
 class TestingConfig(Config):
     TESTING = True
 
-    DB_SERVER_NAME = "localhost:3306"
-    DB_NAME = "zion_thermo"
-    DB_USERNAME = "root"
-    DB_PASSWORD = "56Runna01"
+    # DB_NAME de teste é diferente do de produção ("zion_thermo"); ajuste via
+    # a variável de ambiente DB_NAME no .env usado ao rodar os testes.
+    DB_NAME = os.getenv("DB_NAME_TESTE", "zion_thermo")
 
     ZIP_ADDRESS = "http://192.168.15.5:1199/csv"
 

@@ -3,11 +3,32 @@ from datetime import datetime, timedelta
 from typing import List
 
 from dateutil.relativedelta import relativedelta
-from sqlalchemy import desc, func, text
 
-import base.qModel as ctx
 from base.qBase import qBase
 from cfg.config import Config
+from infra import db
+from infra.repositories.associacaoProdutoRepository import AssociacaoProdutoRepository
+from infra.repositories.atendimentoComandaRepository import AtendimentoComandaRepository
+from infra.repositories.cfopRepository import CFOPRepository
+from infra.repositories.clienteRepository import ClienteRepository
+from infra.repositories.comboProdutoRepository import ComboProdutoRepository
+from infra.repositories.doseProdutoRepository import DoseProdutoRepository
+from infra.repositories.empresaRepository import EmpresaRepository
+from infra.repositories.enderecoClienteRepository import EnderecoClienteRepository
+from infra.repositories.estoqueRepository import EstoqueRepository
+from infra.repositories.filaComandaRepository import FilaComandaRepository
+from infra.repositories.financeiroRepository import FinanceiroRepository
+from infra.repositories.formaPagtoRepository import FormaPagtoRepository
+from infra.repositories.itemPedidoRepository import ItemPedidoRepository
+from infra.repositories.municipioRepository import MunicipioRepository
+from infra.repositories.numeroNotaRepository import NumeroNotaRepository
+from infra.repositories.pedidoNFeRepository import PedidoNFeRepository
+from infra.repositories.pedidoPagamentoRepository import PedidoPagamentoRepository
+from infra.repositories.pedidoRepository import PedidoRepository
+from infra.repositories.planoContaRepository import PlanoContaRepository
+from infra.repositories.produtoRepository import ProdutoRepository
+from infra.repositories.transporteRepository import TransporteRepository
+from infra.repositories.tributoRepository import TributoRepository
 from models.clienteEndereco import clienteEndereco
 from models.clientePedido import clientePedido
 from models.conclusaoPagamento import conclusaoPagamento
@@ -37,6 +58,10 @@ from models.itemsNFe import itemsNFe
 from models.itemTributo import itemTributo
 from models.listaDePedido import listaDePedido
 from models.listaDeTributo import listaDeTributo
+from models.tributoCompleto import tributoCompleto
+from models.filtroFaturamentoAutomatico import filtroFaturamentoAutomatico
+from models.pedidoParaFaturar import pedidoParaFaturar
+from models.filtroMunicipio import filtroMunicipio
 from models.listaDePagamentos import listaDePagamentos
 from models.listaFormaPagto import listaFormaPagto
 from models.NFCe_Processada import NFCe_Processada
@@ -56,6 +81,15 @@ from models.produtoQtde import produtoQtde
 from models.produtoIDQtde import produtoIDQtde
 from models.TOTAL_PEDIDO import TOTAL_PEDIDO
 
+
+class _ErroNegocioPedido(Exception):
+    """Sinaliza uma falha de validação de negócio (não de sistema) dentro da
+    transação de gravaPedido — usada só para desfazer a transação (rollback)
+    e devolver a mensagem como string, mantendo o mesmo contrato de retorno
+    que o código anterior já tinha (int em caso de sucesso, str em caso de
+    erro de validação)."""
+
+
 class pedido:
     def __init__(self, keep=None, idUser=None):
         self.qBase = qBase(keep)
@@ -63,17 +97,32 @@ class pedido:
         self.idPlanoPagtoFuturo = "1.0.2"
         self.prefs = self.qBase.getPrefs()
 
+        self._clientes = ClienteRepository()
+        self._enderecos = EnderecoClienteRepository()
+        self._transportes = TransporteRepository()
+        self._produtos = ProdutoRepository()
+        self._pedidos = PedidoRepository()
+        self._itensPedido = ItemPedidoRepository()
+        self._pagamentos = PedidoPagamentoRepository()
+        self._estoque = EstoqueRepository()
+        self._combos = ComboProdutoRepository()
+        self._associacoes = AssociacaoProdutoRepository()
+        self._doses = DoseProdutoRepository()
+        self._atendimentoComanda = AtendimentoComandaRepository()
+        self._formasPagto = FormaPagtoRepository()
+        self._planoContas = PlanoContaRepository()
+        self._financeiro = FinanceiroRepository()
+        self._filaComanda = FilaComandaRepository()
+        self._pedidoNFe = PedidoNFeRepository()
+        self._empresas = EmpresaRepository()
+        self._municipios = MunicipioRepository()
+        self._tributos = TributoRepository()
+        self._cfops = CFOPRepository()
+        self._numerosNota = NumeroNotaRepository()
+
     async def preencheConsumidorFinal(self, consumidorFinal: clienteEndereco, _pedido: ped) -> ped:
-        c = ctx.mapCliente
-        e = ctx.mapEnderecoCliente
-
-        cliente = ctx.session.query(c).filter(
-            c.ID_CLIENTE == consumidorFinal.ID_CLIENTE
-        ).first()
-
-        endereco = ctx.session.query(e).filter(
-            e.ID_ENDERECO == consumidorFinal.ID_ENDERECO
-        ).first()
+        cliente = self._clientes.buscar_por_id(consumidorFinal.ID_CLIENTE)
+        endereco = self._enderecos.buscar_por_id(consumidorFinal.ID_ENDERECO)
 
         _pedido.NOME_CLIENTE = cliente.NOME_CLIENTE
         _pedido.ENDERECO_CLIENTE = ' '.join((
@@ -81,8 +130,8 @@ class pedido:
             endereco.NUMERO_ENDERECO,
             endereco.COMPLEMENTO_ENDERECO
             ))
-        
-        _pedido.BAIRRO_CLIENTE = endereco.BAIRRO 
+
+        _pedido.BAIRRO_CLIENTE = endereco.BAIRRO
         _pedido.TELEFONE_CLIENTE = cliente.TELEFONE_CLIENTE
 
         return _pedido
@@ -116,385 +165,171 @@ class pedido:
 
         return NUM_PEDIDO(NUMERO_PEDIDO=numeroPedido)        
 
-    def gravaPedido(self, order: Order) -> dict | str:
-        cliente = self.getClientePedido(order.pedido.ID_CLIENTE, order.pedido.ID_ENDERECO)
+    def gravaPedido(self, order: Order) -> int | str:
+        # Todo o fluxo (cabeçalho + itens + pagamentos + baixa de estoque +
+        # financeiro + impressão) roda numa única transação: ou grava tudo, ou
+        # não grava nada. Antes da migração, cada etapa usava a mesma sessão
+        # global do SQLAlchemy (compartilhada entre requisições concorrentes,
+        # já que era um objeto único no processo) e o cabeçalho do pedido era
+        # commitado sozinho, antes do resto — uma falha no meio do fluxo podia
+        # deixar um pedido gravado sem itens/pagamento. Isso não acontece mais.
+        try:
+            with db.transaction() as conn:
+                cliente = self.getClientePedido(order.pedido.ID_CLIENTE, order.pedido.ID_ENDERECO, conn=conn)
 
-        if 'consumidor final' not in cliente.NOME_CLIENTE.lower():
-            order.pedido.ORIGEM = 'Delivery próprio'
-            
-            for item in order.pagamento:
-                item.ORIGEM = 'Delivery próprio'
+                if 'consumidor final' not in cliente.NOME_CLIENTE.lower():
+                    order.pedido.ORIGEM = 'Delivery próprio'
 
-        numeroPedido = self.insereNovoPedido(order.pedido)
+                    for item in order.pagamento:
+                        item.ORIGEM = 'Delivery próprio'
 
-        assert isinstance(numeroPedido, int)
+                numeroPedido = self.insereNovoPedido(order.pedido, conn=conn)
 
-        assert numeroPedido > 0
+                assert isinstance(numeroPedido, int)
 
-        order.pedido.NUMERO_PEDIDO = numeroPedido
+                assert numeroPedido > 0
 
-        for item in order.itemsPedido:
-            item.NUMERO_PEDIDO = numeroPedido
+                order.pedido.NUMERO_PEDIDO = numeroPedido
 
-        for item in order.pagamento:
-            item.NUMERO_PEDIDO = numeroPedido
+                for item in order.itemsPedido:
+                    item.NUMERO_PEDIDO = numeroPedido
 
-        [self.gravaItensPedido(item) for item in order.itemsPedido]
-        [self.gravaPagamentos(item) for item in order.pagamento]
+                for item in order.pagamento:
+                    item.NUMERO_PEDIDO = numeroPedido
 
-        [self.test_baixaEstoque(item) for item in order.itemsPedido]
+                [self.gravaItensPedido(item, conn=conn) for item in order.itemsPedido]
+                [self.gravaPagamentos(item, conn=conn) for item in order.pagamento]
 
-        financeiro = [
-            self.test_gravaFinanceiro(order.pedido, order.itemsPedido, pagamento)
-            for pagamento in order.pagamento
-        ]
+                [self.test_baixaEstoque(item, conn=conn) for item in order.itemsPedido]
 
-        erro = list(filter(lambda e: isinstance(e, str), financeiro))
+                financeiro = [
+                    self.test_gravaFinanceiro(order.pedido, order.itemsPedido, pagamento, conn=conn)
+                    for pagamento in order.pagamento
+                ]
 
-        if any(erro):
-            return ''.join(erro)
+                erro = list(filter(lambda e: isinstance(e, str), financeiro))
 
-        if order.impressaoPedido.IMPRESSAO_NAO_FISCAL == 1:
-            cmd = ctx.tb_fila_comanda.insert().values(
-                ID_FILA=0,
-                NUMERO_COMANDA=numeroPedido,
-                PROCESSADO=order.impressaoPedido.NUMERO_IMPRESSORA,
-            )
+                if any(erro):
+                    raise _ErroNegocioPedido(''.join(erro))
 
-            ctx.session.execute(cmd)
+                if order.impressaoPedido.IMPRESSAO_NAO_FISCAL == 1:
+                    self._filaComanda.inserir(
+                        numeroPedido, order.impressaoPedido.NUMERO_IMPRESSORA, conn=conn
+                    )
 
-        if order.impressaoPedido.IMPRESSAO_FISCAL == 1:
-            self.test_gravaImpressaoFiscal(numeroPedido)
-
-        ctx.session.commit()
+                if order.impressaoPedido.IMPRESSAO_FISCAL == 1:
+                    self.test_gravaImpressaoFiscal(numeroPedido, conn=conn)
+        except _ErroNegocioPedido as ex:
+            # Validação de negócio (ex.: limite de vale funcionário excedido)
+            # — não é uma falha de sistema, então a transação já foi desfeita
+            # (rollback automático do "with") e devolvemos a mensagem como
+            # string, igual ao comportamento anterior.
+            return str(ex)
 
         return numeroPedido
 
-    def insereNovoPedido(self, pedido: pedido) -> int:
+    def insereNovoPedido(self, pedido: pedido, conn=None) -> int:
+        cliente = self.getClientePedido(pedido.ID_CLIENTE, pedido.ID_ENDERECO, conn=conn)
 
-        cliente = self.getClientePedido(pedido.ID_CLIENTE, pedido.ID_ENDERECO)
+        return self._pedidos.inserir(pedido, cliente, conn=conn)
 
-        cmd = ctx.tb_pedido.insert().values(
-            NUMERO_PEDIDO=0,
-            DATA_HORA=datetime.strptime(pedido.DATA_HORA, "%d/%m/%Y %H:%M"),
-            DATA_ENTREGA=datetime.strptime(pedido.DATA_ENTREGA, "%d/%m/%Y %H:%M"),
-            DATA_HORA_AGENDA=datetime.strptime(
-                pedido.DATA_HORA_AGENDA, "%d/%m/%Y %H:%M"
-            ),
-            TEMPO_ENTREGA=pedido.TEMPO_ENTREGA,
-            TEMPO_RETIRADA_LOJA=datetime.strptime(
-                pedido.TEMPO_RETIRADA_LOJA, "%d/%m/%Y %H:%M"
-            ),
-            TEMPO_MOTOBOY_CAMINHO=datetime.strptime(
-                pedido.TEMPO_MOTOBOY_CAMINHO, "%d/%m/%Y %H:%M"
-            ),
-            ID_CLIENTE=pedido.ID_CLIENTE,
-            ID_ENDERECO=pedido.ID_ENDERECO,
-            CPF=pedido.CPF,
-            IE=pedido.IE,
-            NOME_CLIENTE=cliente.NOME_CLIENTE,
-            ENDERECO_CLIENTE=cliente.ENDERECO,
-            BAIRRO_CLIENTE=cliente.BAIRRO,
-            TELEFONE_CLIENTE=cliente.TELEFONE,
-            LATITUDE=pedido.LATITUDE,
-            LONGITUDE=pedido.LONGITUDE,
-            ORIGEM=pedido.ORIGEM,
-            ID_CAIXA=pedido.ID_CAIXA,
-            STATUS_PEDIDO=pedido.STATUS_PEDIDO,
-            NUMERO_PESSOAS=pedido.NUMERO_PESSOAS,
-            NUMERO_VENDA=pedido.NUMERO_VENDA,
-            TIPO_ADICIONAL=pedido.TIPO_ADICIONAL,
-            TOTAL_PRODUTOS=pedido.TOTAL_PRODUTOS,
-            TROCO=pedido.TROCO,
-            DESCONTO=pedido.DESCONTO,
-            ADICIONAL=pedido.ADICIONAL,
-            TAXA_ENTREGA=pedido.TAXA_ENTREGA,
-            TOTAL_PEDIDO=pedido.TOTAL_PEDIDO,
-            MOTIVO_DEVOLUCAO=pedido.MOTIVO_DEVOLUCAO,
-            ID_TRANSPORTE=pedido.ID_TRANSPORTE,
-            INFO_ADICIONAL=pedido.INFO_ADICIONAL,
-            NUMERO_PEDIDO_ZE_DELIVERY=pedido.NUMERO_PEDIDO_ZE_DELIVERY,
-            NUMERO_PEDIDO_DELIVERY=pedido.NUMERO_PEDIDO_DELIVERY,
-            NUMERO_PEDIDO_LALAMOVE=pedido.NUMERO_PEDIDO_LALAMOVE,
-            NUMERO_PEDIDO_IFOOD=pedido.NUMERO_PEDIDO_IFOOD,
-            ID_PEDIDO_IFOOD=pedido.ID_PEDIDO_IFOOD,
-            TIPO_PEDIDO_IFOOD=pedido.TIPO_PEDIDO_IFOOD,
-            CODIGO_IDENTIFICACAO_IFOOD=pedido.CODIGO_IDENTIFICACAO_IFOOD,
-            ORDER_NUMBER_GOOMER=pedido.ORDER_NUMBER_GOOMER,
-            ID_PEDIDO_GOOMER=pedido.ID_PEDIDO_GOOMER,
-            ORDER_NUMBER_WABIZ=pedido.ORDER_NUMBER_WABIZ,
-            INTERNAL_KEY_WABIZ=pedido.INTERNAL_KEY_WABIZ,
-            ORDER_NUMBER_RAPPI=pedido.ORDER_NUMBER_RAPPI,
-            REQUEST_ID_FATTORINO=pedido.REQUEST_ID_FATTORINO,
-            INTERNAL_KEY_ZION=pedido.INTERNAL_KEY_ZION,
-            MOTIVO_CANCELAMENTO=pedido.MOTIVO_CANCELAMENTO,
-            COMENTARIOS_AVALIACAO=pedido.COMENTARIOS_AVALIACAO,
-            NOTA_AVALIACAO=pedido.NOTA_AVALIACAO,
-            ORDEM_ROTEIRO=pedido.ORDEM_ROTEIRO,
-            TEMPO_ATENDIMENTO_ROBO=datetime.strptime(
-                pedido.TEMPO_ATENDIMENTO_ROBO, "%d/%m/%Y %H:%M"
-            ),
-            TEMPO_ENTREGA_PEDIDO=datetime.strptime(
-                pedido.TEMPO_ENTREGA_PEDIDO, "%d/%m/%Y %H:%M"
-            ),
-            ID_PEDIDO_LOCAL=pedido.ID_PEDIDO_LOCAL,
-            ID_TERMINAL=pedido.ID_TERMINAL,
+    def gravaItensPedido(self, item: itemPedido, conn=None) -> bool:
+        self._itensPedido.inserir(item, conn=conn)
+
+        descricaoProduto = self.getDescricaoProduto(item.ID_PRODUTO, conn=conn)
+
+        self._atendimentoComanda.inserir(
+            item.ID_PRODUTO,
+            item.QTDE,
+            item.PRECO_UNITARIO,
+            item.NUMERO_PEDIDO,
+            item.ID_TRIBUTO,
+            descricaoProduto,
+            conn=conn,
         )
 
-        result = ctx.session.execute(cmd)
-        ctx.session.commit()
+    def gravaPagamentos(self, item: pedidoPagamento, conn=None) -> bool:
+        self._pagamentos.inserir(item, conn=conn)
 
-        return int(result.inserted_primary_key[0])
-
-    def gravaItensPedido(self, item: itemPedido) -> bool:
-        cmd = ctx.tb_item_pedido.insert().values(
-            NUMERO_ITEM=0,
-            NUMERO_PEDIDO=item.NUMERO_PEDIDO,
-            ID_PRODUTO=item.ID_PRODUTO,
-            CODIGO_PRODUTO=item.CODIGO_PRODUTO,
-            QTDE=item.QTDE,
-            PRECO_UNITARIO=item.PRECO_UNITARIO,
-            VALOR_TOTAL=item.VALOR_TOTAL,
-            ID_TRIBUTO=item.ID_TRIBUTO,
-            OBS_ITEM=item.OBS_ITEM,
-            ID_ITEM_LOCAL=item.ID_ITEM_LOCAL,
-            ID_TERMINAL=item.ID_TERMINAL,
-        )
-
-        descricaoProduto = self.getDescricaoProduto(item.ID_PRODUTO)
-
-        cmd1 = ctx.tb_atendimento_comanda.insert().values(
-            ID_ATENDIMENTO=0,
-            NUMERO_COMANDA_ATENDIMENTO=0,
-            ID_PRODUTO=item.ID_PRODUTO,
-            QTDE=item.QTDE,
-            PRECO=item.PRECO_UNITARIO,
-            NUMERO_COMANDA=item.NUMERO_PEDIDO,
-            FECHADO=1,
-            DATA_HORA=datetime.today(),
-            ID_TRIBUTO=item.ID_TRIBUTO,
-            MESA="",
-            OBS_ITEM="",
-            IMPRESSAO=0,
-            AGRUPADOR=0,
-            IMPRESSAO_PRECONTA=0,
-            DESCONTO=0,
-            ADICIONAL=0,
-            DESCRICAO_PRODUTO=descricaoProduto,
-            QTDE_IMPRESSAO=0,
-            ID_ATENDIMENTO_LOCAL=0,
-            ID_TERMINAL=0,
-            NOME_MESA="",
-        )
-
-        [ctx.session.execute(item) for item in (cmd, cmd1)]
-
-    def gravaPagamentos(self, item: pedidoPagamento) -> bool:
-
-        formaPagto = item.FORMA_PAGTO
-
-        if '.' in formaPagto:
-            formaPagto = formaPagto[formaPagto.index('.') + 1:].strip()
-
-        cmd = ctx.tb_pedido_pagamento.insert().values(
-            ID_PAGAMENTO=0,
-            NUMERO_PEDIDO=item.NUMERO_PEDIDO,
-            DATA_HORA=datetime.strptime(item.DATA_HORA, "%d/%m/%Y %H:%M"),
-            FORMA_PAGTO=formaPagto,
-            VALOR_PAGO=item.VALOR_PAGO,
-            ID_CAIXA=item.ID_CAIXA,
-            ORIGEM=item.ORIGEM,
-            ID_PAGAMENTO_LOCAL=item.ID_PAGAMENTO_LOCAL,
-            ID_TERMINAL=item.ID_TERMINAL,
-            CODIGO_NSU=item.CODIGO_NSU,
-            VALOR_PAGO_STONE=item.VALOR_PAGO_STONE,
-            DATA_AUTORIZACAO=datetime.strptime(item.DATA_AUTORIZACAO, "%d/%m/%Y %H:%M"),
-            BANDEIRA=item.BANDEIRA,
-        )
-
-        ctx.session.execute(cmd)
-
-    def test_baixaEstoque(self, item: itemPedido):
-        assert self.baixaEstoque(item, 1) == True
+    def test_baixaEstoque(self, item: itemPedido, conn=None):
+        assert self.baixaEstoque(item, 1, conn=conn) == True
 
     def gravaEstoque(self, dados: estoque) -> bool:
-        cmd = ctx.tb_estoque.insert().values(
-            ID_ESTOQUE=dados.ID_ESTOQUE,
-            DATA_ESTOQUE=datetime.strptime(dados.DATA_ESTOQUE, "%d/%m/%Y %H:%M"),
-            ID_PRODUTO=dados.ID_PRODUTO,
-            MOVIMENTO=dados.MOVIMENTO,
-            QTDE_ESTOQUE=dados.QTDE_ESTOQUE,
-            ID_FORNECEDOR=dados.ID_FORNECEDOR,
-            ID_EMPRESA=dados.ID_EMPRESA,
-            SALDO=dados.SALDO,
-            NUMERO_COMANDA=dados.NUMERO_COMANDA,
-            PRECO_CUSTO=dados.PRECO_CUSTO,
-            CONTAGEM=dados.CONTAGEM,
-        )
-
-        ctx.session.execute(cmd)
-        ctx.session.commit()
+        self._estoque.inserir(dados)
 
         return True
 
-    def baixaEstoque(self, item: itemPedido, movimento: int) -> bool:
-        tableCombo = ctx.mapComboProduto
-
-        comboProduto = (
-            ctx.session.query(
-                tableCombo.ID_PRODUTO,
-                tableCombo.ID_PRODUTO_COMBO,
-                tableCombo.QTDE_COMBO,
-            )
-            .filter(tableCombo.ID_PRODUTO == item.ID_PRODUTO)
-            .all()
-        )
-
-        p = ctx.mapProduto
+    def baixaEstoque(self, item: itemPedido, movimento: int, conn=None) -> bool:
+        comboProduto = self._combos.listar_por_produto(item.ID_PRODUTO, conn=conn)
 
         for combo in comboProduto:
-            exists = (
-                ctx.session.query(p)
-                .filter(p.ID_PRODUTO == combo.ID_PRODUTO_COMBO)
-                .all()
-            )
-
-            if len(exists) == 0:
+            if not self._produtos.existe(combo.ID_PRODUTO_COMBO, conn=conn):
                 continue
 
-            cmd = ctx.tb_estoque.insert().values(
-                ID_ESTOQUE=0,
-                DATA_ESTOQUE=datetime.today(),
-                ID_PRODUTO=combo.ID_PRODUTO_COMBO,
-                MOVIMENTO=movimento,
-                QTDE_ESTOQUE=combo.QTDE_COMBO,
-                ID_FORNECEDOR=None,
-                ID_EMPRESA=1,
-                SALDO=combo.QTDE_COMBO,
-                NUMERO_COMANDA=item.NUMERO_PEDIDO,
-                PRECO_CUSTO=0.00,
-                CONTAGEM=0,
+            self._estoque.inserir_movimento(
+                combo.ID_PRODUTO_COMBO, movimento, combo.QTDE_COMBO,
+                item.NUMERO_PEDIDO, combo.QTDE_COMBO, conn=conn
             )
-
-            ctx.session.execute(cmd)
 
         if len(comboProduto) > 0:
             return True
 
-        tableAssociacao = ctx.mapAssociacaoProduto
-
-        associacaoProduto = (
-            ctx.session.query(
-                tableAssociacao.ID_PRODUTO, tableAssociacao.ID_PRODUTO_ESTOQUE
-            )
-            .filter(tableAssociacao.ID_PRODUTO == item.ID_PRODUTO)
-            .all()
-        )
+        associacaoProduto = self._associacoes.listar_por_produto(item.ID_PRODUTO, conn=conn)
 
         for item1 in associacaoProduto:
-            exists = (
-                ctx.session.query(p)
-                .filter(p.ID_PRODUTO == item1.ID_PRODUTO_ESTOQUE)
-                .all()
-            )
-
-            if len(exists) == 0:
+            if not self._produtos.existe(item1.ID_PRODUTO_ESTOQUE, conn=conn):
                 continue
 
-            cmd = ctx.tb_estoque.insert().values(
-                ID_ESTOQUE=0,
-                DATA_ESTOQUE=datetime.today(),
-                ID_PRODUTO=item1.ID_PRODUTO_ESTOQUE,
-                MOVIMENTO=movimento,
-                QTDE_ESTOQUE=item.QTDE,
-                ID_FORNECEDOR=None,
-                ID_EMPRESA=1,
-                SALDO=item.QTDE,
-                NUMERO_COMANDA=item.NUMERO_PEDIDO,
-                PRECO_CUSTO=0.00,
-                CONTAGEM=0,
+            self._estoque.inserir_movimento(
+                item1.ID_PRODUTO_ESTOQUE, movimento, item.QTDE,
+                item.NUMERO_PEDIDO, item.QTDE, conn=conn
             )
-
-            ctx.session.execute(cmd)
 
         if len(associacaoProduto) > 0:
             return True
 
-        tableDose = ctx.mapDoseProduto
-
-        doseProduto = (
-            ctx.session.query(tableDose.ID_PRODUTO, tableDose.ID_PRODUTO_DOSE)
-            .filter(tableDose.ID_PRODUTO_DOSE == item.ID_PRODUTO)
-            .all()
-        )
+        # Correção: a consulta original não trazia DOSE_ML (só ID_PRODUTO e
+        # ID_PRODUTO_DOSE), mas o código logo abaixo acessava item1.DOSE_ML —
+        # levantava AttributeError sempre que um produto vendido por dose
+        # entrava aqui (baixa de estoque quebrava para esses produtos).
+        doseProduto = self._doses.listar_por_produto_dose(item.ID_PRODUTO, conn=conn)
 
         for item1 in doseProduto:
-            exists = ctx.session.query(p).filter(p.ID_PRODUTO == item1.ID_PRODUTO).all()
-
-            if len(exists) == 0:
+            if not self._produtos.existe(item1.ID_PRODUTO, conn=conn):
                 continue
 
-            cmd = ctx.tb_estoque.insert().values(
-                ID_ESTOQUE=0,
-                DATA_ESTOQUE=datetime.today(),
-                ID_PRODUTO=item1.ID_PRODUTO,
-                MOVIMENTO=movimento,
-                QTDE_ESTOQUE=item1.DOSE_ML,
-                ID_FORNECEDOR=None,
-                ID_EMPRESA=1,
-                SALDO=item1.DOSE_ML,
-                NUMERO_COMANDA=item.NUMERO_PEDIDO,
-                PRECO_CUSTO=0.00,
-                CONTAGEM=0,
+            self._estoque.inserir_movimento(
+                item1.ID_PRODUTO, movimento, item1.DOSE_ML,
+                item.NUMERO_PEDIDO, item1.DOSE_ML, conn=conn
             )
-
-            ctx.session.execute(cmd)
 
         if len(doseProduto) > 0:
             return True
 
-        cmd = ctx.tb_estoque.insert().values(
-            ID_ESTOQUE=0,
-            DATA_ESTOQUE=datetime.today(),
-            ID_PRODUTO=item.ID_PRODUTO,
-            MOVIMENTO=movimento,
-            QTDE_ESTOQUE=item.QTDE,
-            ID_FORNECEDOR=None,
-            ID_EMPRESA=1,
-            SALDO=item.QTDE,
-            NUMERO_COMANDA=item.NUMERO_PEDIDO,
-            PRECO_CUSTO=0.00,
-            CONTAGEM=0,
+        self._estoque.inserir_movimento(
+            item.ID_PRODUTO, movimento, item.QTDE, item.NUMERO_PEDIDO, item.QTDE, conn=conn
         )
-
-        ctx.session.execute(cmd)
 
         return True
 
     def test_gravaFinanceiro(
-        self, pedido: pedido, itemsPedido: List[itemPedido], pagamento: pedidoPagamento
+        self, pedido: pedido, itemsPedido: List[itemPedido], pagamento: pedidoPagamento, conn=None
     ) -> bool | str:
-        result = self.gravaFinanceiro(pedido, itemsPedido, pagamento)
+        result = self.gravaFinanceiro(pedido, itemsPedido, pagamento, conn=conn)
 
         return result
 
     def gravaFinanceiro(
-        self, _pedido: pedido, itemsPedido: List[itemPedido], pagamento: pedidoPagamento
+        self, _pedido: pedido, itemsPedido: List[itemPedido], pagamento: pedidoPagamento, conn=None
     ) -> bool | str:
-        table = ctx.mapFormaPagto
+        formaPagto = self._formasPagto.buscar_por_descricao(pagamento.FORMA_PAGTO, conn=conn)
 
-        formaPagto = (
-            ctx.session.query(table)
-            .filter(table.DESCRICAO_FORMA == pagamento.FORMA_PAGTO)
-            .all()
-        )
-
-        if len(formaPagto) > 0:
-            if formaPagto[0].PAGTO_FUTURO == 1:
+        if formaPagto is not None:
+            if formaPagto.PAGTO_FUTURO == 1:
 
                 itemsFinanceiro = [
                     itemPedidoFinanceiro(
-                        PRODUTO= self.getDescricaoProduto(item.ID_PRODUTO),
+                        PRODUTO= self.getDescricaoProduto(item.ID_PRODUTO, conn=conn),
                         QTDE=item.QTDE
                     )
                     for item in itemsPedido
@@ -503,16 +338,17 @@ class pedido:
                 self.inserePagtoFuturo(
                     pedidoFinanceiro(
                         NUMERO_PEDIDO=_pedido.NUMERO_PEDIDO,
-                        NOME_CLIENTE=self.getNomeCliente(_pedido.ID_CLIENTE),
+                        NOME_CLIENTE=self.getNomeCliente(_pedido.ID_CLIENTE, conn=conn),
                         ID_CLIENTE=_pedido.ID_CLIENTE,
                         TOTAL_PEDIDO=_pedido.TOTAL_PEDIDO,
                         LIMITE_MENSAL=_pedido.LIMITE_MENSAL
-                    ), 
-                    itemsFinanceiro, 
+                    ),
+                    itemsFinanceiro,
                     pedidoPagamentoFinanceiro(
                         VALOR_PAGO=pagamento.VALOR_PAGO,
                         NUMERO_PEDIDO=pagamento.NUMERO_PEDIDO
-                    )
+                    ),
+                    conn=conn
                 )
 
                 return True
@@ -522,13 +358,13 @@ class pedido:
         if _pedido.LIMITE_MENSAL > 0.00:
             valorLimite = _pedido.LIMITE_MENSAL
 
-        if valorLimite == 0.00 and formaPagto[0].VALE_FUNCIONARIO == 1:
-            valorLimite = formaPagto[0].VALOR_DIA if formaPagto[0].VALOR_DIA is not None else 0.00
+        if valorLimite == 0.00 and formaPagto is not None and formaPagto.VALE_FUNCIONARIO == 1:
+            valorLimite = formaPagto.VALOR_DIA if formaPagto.VALOR_DIA is not None else 0.00
 
         if valorLimite > 0.00:
             itemsFinanceiro = [
                 itemPedidoFinanceiro(
-                    PRODUTO= self.getDescricaoProduto(item.ID_PRODUTO),
+                    PRODUTO= self.getDescricaoProduto(item.ID_PRODUTO, conn=conn),
                     QTDE=item.QTDE
                 )
                 for item in itemsPedido
@@ -537,111 +373,79 @@ class pedido:
             result = self.insereValeFuncionario(
                 pedidoFinanceiro(
                     NUMERO_PEDIDO=_pedido.NUMERO_PEDIDO,
-                    NOME_CLIENTE=self.getNomeCliente(_pedido.ID_CLIENTE),
+                    NOME_CLIENTE=self.getNomeCliente(_pedido.ID_CLIENTE, conn=conn),
                     ID_CLIENTE=_pedido.ID_CLIENTE,
                     TOTAL_PEDIDO=_pedido.TOTAL_PEDIDO,
                     LIMITE_MENSAL=_pedido.LIMITE_MENSAL
-                ), 
-                itemsFinanceiro, 
+                ),
+                itemsFinanceiro,
                 pedidoPagamentoFinanceiro(
                     VALOR_PAGO=pagamento.VALOR_PAGO,
                     NUMERO_PEDIDO=pagamento.NUMERO_PEDIDO
-                )
+                ),
+                conn=conn
             )
 
             if isinstance(result, str):
-                ctx.session.rollback()
+                # A transação inteira (gravaPedido) é desfeita pelo chamador
+                # quando esta função devolve uma string — não precisa de
+                # rollback manual aqui.
                 return result
 
-            self.inserePagtoCartao(_pedido, itemsPedido, pagamento)
-
-            ctx.session.commit()
+            self.inserePagtoCartao(_pedido, itemsPedido, pagamento, conn=conn)
 
         return True
 
     async def test_gravaImpressaoNaoFiscal(
         self, impressaoNaoFiscal: filaComanda
     ) -> bool:
-        assert self.gravaImpressaoNaoFiscal(impressaoNaoFiscal) == True
+        self.gravaImpressaoNaoFiscal(impressaoNaoFiscal)
 
         return True
 
-    def gravaImpressaoNaoFiscal(self, impressaoNaoFiscal: filaComanda) -> bool:
-        cmd = ctx.tb_fila_comanda.insert().values(
-            ID_FILA=0, NUMERO_COMANDA=impressaoNaoFiscal.NUMERO_COMANDA, PROCESSADO=0
+    def gravaImpressaoNaoFiscal(self, impressaoNaoFiscal: filaComanda, conn=None) -> bool:
+        self._filaComanda.inserir(impressaoNaoFiscal.NUMERO_COMANDA, 0, conn=conn)
+
+        return True
+
+    def test_gravaImpressaoFiscal(self, numeroPedido: int, conn=None) -> bool:
+        assert self.gravaImpressaoFiscal(numeroPedido, conn=conn) == True
+
+        return True
+
+    def gravaImpressaoFiscal(self, numeroPedido: int, conn=None) -> bool:
+        _nf = asyncio.run(self.buscaProximaNF(conn=conn))
+
+        self._pedidoNFe.inserir(
+            numero_pedido=numeroPedido,
+            numero_nf=_nf[0],
+            serie_nf=_nf[1],
+            processado=1,
+            conn=conn,
         )
 
-        ctx.session.execute(cmd)
-
-    def test_gravaImpressaoFiscal(self, numeroPedido: int) -> bool:
-        assert self.gravaImpressaoFiscal(numeroPedido) == True
-
         return True
 
-    def gravaImpressaoFiscal(self, numeroPedido: int) -> bool:
-        _nf = asyncio.run(self.buscaProximaNF())
+    async def buscaProximaNF(self, conn=None):
+        _empresa = self._empresas.numero_e_serie_nfce(conn=conn)
 
-        cmd = ctx.tb_pedido_nfe.insert().values(
-            ID_PEDIDO_NFE=0,
-            NUMERO_PEDIDO=numeroPedido,
-            XML_NOTA="",
-            RESPOSTA_SEFAZ="",
-            NUMERO_NF=_nf[0],
-            SERIE_NF=_nf[1],
-            CHAVE_ACESSO_NF="",
-            PROTOCOLO_AUTORIZACAO="",
-            PROCESSADO=1,
-            ASSINATURA_NFCE="",
-            DATA_AUTORIZACAO_NFCE="",
-            CHAVE_PEDIDO="",
-            XML_DEVOLUCAO="",
-            NUMERO_NF_DEVOLUCAO=0,
-            GERAR_DANFE=0,
-            ID_EMPRESA=1,
-            CHAVE_NF_DEVOLUCAO="",
-            ID_PEDIDO_NFE_LOCAL=0,
-            ID_TERMINAL=0
-        )
-
-        ctx.session.execute(cmd)
-
-        return True
-
-    async def buscaProximaNF(self):
-        _empresa = ctx.session.query(
-            ctx.mapEmpresa.ID_EMPRESA,
-            ctx.mapEmpresa.NUMERO_NFCE,
-            ctx.mapEmpresa.SERIE_NFCE,
-        ).all()
-
-        NF = 0 if _empresa[0].NUMERO_NFCE == None else _empresa[0].NUMERO_NFCE
+        NF = 0 if _empresa["NUMERO_NFCE"] is None else _empresa["NUMERO_NFCE"]
 
         retorno = [
             NF,
-            "1" if _empresa[0].SERIE_NFCE == None else _empresa[0].SERIE_NFCE,
+            "1" if _empresa["SERIE_NFCE"] is None else _empresa["SERIE_NFCE"],
         ]
 
         return retorno
 
     def inserePagtoFuturo(
         self, pedido: pedidoFinanceiro, itemsPedido: List[itemPedidoFinanceiro], pagamento: pedidoPagamentoFinanceiro,
-
+        conn=None
     ) -> bool:
-        planoConta = (
-            ctx.session.query(ctx.mapPlanoConta)
-            .filter(ctx.mapPlanoConta.ID_PLANO == self.idPlanoPagtoFuturo)
-            .all()
-        )
-
-        if len(planoConta) == 0:
-            cmd = ctx.tb_plano_conta.insert().values(
-                ID_PLANO=self.idPlanoPagtoFuturo,
-                DESCRICAO_PLANO="RECEBIMENTO FUTURO",
-                PAI_PLANO="1",
-                CREDITO_DEBITO=0,
+        if not self._planoContas.existe(self.idPlanoPagtoFuturo, conn=conn):
+            self._planoContas.inserir(
+                self.idPlanoPagtoFuturo, "RECEBIMENTO FUTURO", "1", 0, conn=conn
             )
-
-            ctx.session.execute(cmd)
 
         hoje = datetime.today()
 
@@ -654,15 +458,11 @@ class pedido:
 
         _vencimento = datetime(ano, mes, 7, hoje.hour, hoje.minute, 0)
 
-        delFinanceiro = ctx.tb_financeiro.delete().where(
-            ctx.mapFinanceiro.NUMERO_COMANDA == pagamento.NUMERO_PEDIDO
-        )
-
-        ctx.session.execute(delFinanceiro)
+        self._financeiro.deletar_por_comanda(pagamento.NUMERO_PEDIDO, conn=conn)
 
         items = [
             produtoQtde(
-                DESCRICAO_PRODUTO=item.PRODUTO, 
+                DESCRICAO_PRODUTO=item.PRODUTO,
                 QTDE=item.QTDE
                 )
             for item in itemsPedido
@@ -682,39 +482,21 @@ class pedido:
         if len(descricao) > 250:
             descricao = descricao[0: 250]
 
-        cmd = ctx.tb_financeiro.insert().values(
-            DATA_LANCAMENTO=datetime.today(),
-            DATA_VENCIMENTO=_vencimento,
-            DATA_PAGAMENTO=datetime(1901, 1, 1),
-            HISTORICO=descricao,
-            ID_PLANO=self.idPlanoPagtoFuturo,
-            VALOR=pagamento.VALOR_PAGO,
-            VALOR_DESCONTO=0,
-            VALOR_ACRESCIMO=0,
-            VALOR_TOTAL=pagamento.VALOR_PAGO,
-            CREDITO_DEBITO=0,
-            NUMERO_SEQ_NF_ENTRADA=0,
-            ID_EMPRESA=1,
-            NUMERO_COMANDA=pagamento.NUMERO_PEDIDO
+        self._financeiro.inserir(
+            _vencimento, descricao, self.idPlanoPagtoFuturo,
+            pagamento.VALOR_PAGO, 0, pagamento.VALOR_PAGO, pagamento.NUMERO_PEDIDO,
+            conn=conn
         )
-
-        ctx.session.execute(cmd)
 
         return True
 
     def inserePagtoCartao(
-        self, pedido: pedido, itemsPedido: List[itemPedido], pagamento: pedidoPagamento
+        self, pedido: pedido, itemsPedido: List[itemPedido], pagamento: pedidoPagamento, conn=None
     ) -> bool:
-        formaPagto = (
-            ctx.session.query(ctx.mapFormaPagto)
-            .filter(ctx.mapFormaPagto.DESCRICAO_FORMA == pagamento.FORMA_PAGTO)
-            .all()
-        )
+        recPagamento = self._formasPagto.buscar_por_descricao(pagamento.FORMA_PAGTO, conn=conn)
 
-        if len(formaPagto) == 0:
+        if recPagamento is None:
             return True
-
-        recPagamento = formaPagto[0]
 
         if recPagamento.DIAS_PAGAMENTO is None:
             return True
@@ -722,21 +504,10 @@ class pedido:
         if recPagamento.DIAS_PAGAMENTO <= 0:
             return True
 
-        planoConta = (
-            ctx.session.query(ctx.mapPlanoConta)
-            .filter(ctx.mapPlanoConta.ID_PLANO == self.idPlanoPagtoFuturo)
-            .all()
-        )
-
-        if len(planoConta) == 0:
-            cmd = ctx.tb_plano_conta.insert().values(
-                ID_PLANO=self.idPlanoPagtoFuturo,
-                DESCRICAO_PLANO="RECEBIMENTO FUTURO",
-                PAI_PLANO="1",
-                CREDITO_DEBITO=0,
+        if not self._planoContas.existe(self.idPlanoPagtoFuturo, conn=conn):
+            self._planoContas.inserir(
+                self.idPlanoPagtoFuturo, "RECEBIMENTO FUTURO", "1", 0, conn=conn
             )
-
-            ctx.session.execute(cmd)
 
         hoje = datetime.today()
 
@@ -749,15 +520,11 @@ class pedido:
 
         _vencimento = datetime(ano, mes, 7, hoje.hour, hoje.minute, 0)
 
-        delFinanceiro = ctx.tb_financeiro.delete().where(
-            ctx.mapFinanceiro.NUMERO_COMANDA == pagamento.NUMERO_PEDIDO
-        )
-
-        ctx.session.execute(delFinanceiro)
+        self._financeiro.deletar_por_comanda(pagamento.NUMERO_PEDIDO, conn=conn)
 
         items = [
             produtoQtde(
-                DESCRICAO_PRODUTO=self.getDescricaoProduto(item.ID_PRODUTO),
+                DESCRICAO_PRODUTO=self.getDescricaoProduto(item.ID_PRODUTO, conn=conn),
                 QTDE=item.QTDE
             )
             for item in itemsPedido
@@ -767,7 +534,7 @@ class pedido:
             [f"[{item.DESCRICAO_PRODUTO}, Qtde: {str(item.QTDE)}]" for item in items]
         )
 
-        nomeCliente = self.getNomeCliente(pedido.ID_CLIENTE)
+        nomeCliente = self.getNomeCliente(pedido.ID_CLIENTE, conn=conn)
 
         descricao = "".join(
             [
@@ -790,67 +557,32 @@ class pedido:
 
         valorAbatimento = round(valorPago * (percentualAbatimento / 100), 2)
 
-        cmd = ctx.tb_financeiro.insert().values(
-            DATA_LANCAMENTO=datetime.today(),
-            DATA_VENCIMENTO=_vencimento,
-            DATA_PAGAMENTO=datetime(1901, 1, 1),
-            HISTORICO=descricao,
-            ID_PLANO=self.idPlanoPagtoFuturo,
-            VALOR=valorPago,
-            VALOR_DESCONTO=valorAbatimento,
-            VALOR_ACRESCIMO=0,
-            VALOR_TOTAL=valorPago - valorAbatimento,
-            CREDITO_DEBITO=0,
-            NUMERO_SEQ_NF_ENTRADA=0,
-            ID_EMPRESA=1,
-            NUMERO_COMANDA=pagamento.NUMERO_PEDIDO,
+        self._financeiro.inserir(
+            _vencimento, descricao, self.idPlanoPagtoFuturo,
+            valorPago, valorAbatimento, valorPago - valorAbatimento, pagamento.NUMERO_PEDIDO,
+            conn=conn
         )
-
-        ctx.session.execute(cmd)
 
         return True
 
     def insereValeFuncionario(
-        self, pedido: pedidoFinanceiro, itemsPedido: List[itemPedidoFinanceiro], 
-            pagamento: pedidoPagamentoFinanceiro) -> bool | str:
+        self, pedido: pedidoFinanceiro, itemsPedido: List[itemPedidoFinanceiro],
+            pagamento: pedidoPagamentoFinanceiro, conn=None) -> bool | str:
 
         d1 = datetime(datetime.today().year, datetime.today().month, 1)
         d2 = d1 + relativedelta(months=1)
 
-        p = ctx.mapPedido
-        f = ctx.mapFormaPagto
-        pg = ctx.mapPedidoPagamento
+        soma = self._pedidos.soma_total_pedido_mes(pedido.ID_CLIENTE, d1, d2, conn=conn)
 
-        filters = [
-            p.ID_CLIENTE == pedido.ID_CLIENTE,
-            p.DATA_HORA >= d1,
-            p.DATA_HORA < d2,
-            p.STATUS_PEDIDO == 3
-        ]
+        totalVendas = 0.00 if soma is None else float(soma)
 
-        soma = ctx.session.query(
-            func.sum(p.TOTAL_PEDIDO).label("TOTAL_VENDAS")
-        ).filter(*filters).first()
-
-        totalVendas = 0.00 if soma[0] is None else float(soma[0])
-        
         totalVendas += pedido.TOTAL_PEDIDO
 
-        formaPagto = ctx.session.query(
-            pg.FORMA_PAGTO
-        ).filter(
-            pg.NUMERO_PEDIDO == pedido.NUMERO_PEDIDO 
-        ).first().FORMA_PAGTO
-
-        valorMaximoMensal = (
-            ctx.session.query(f).filter(
-            f.DESCRICAO_FORMA == formaPagto
-            ).first()
-        ).VALOR_DIA
-
-        if valorMaximoMensal is None:
-            valorMaximoMensal = 0.00
-
+        # Removido: o código anterior ainda buscava a forma de pagamento do
+        # pedido e o VALOR_DIA da tb_forma_pagto correspondente só para
+        # calcular um `valorMaximoMensal` que era imediatamente sobrescrito
+        # pela linha abaixo (pedido.LIMITE_MENSAL) — resultado sempre
+        # descartado, sem efeito colateral. Duas consultas a menos.
         valorMaximoMensal = pedido.LIMITE_MENSAL
 
         if totalVendas > valorMaximoMensal:
@@ -861,33 +593,23 @@ class pedido:
             ))
 
         self.inserePagtoFuturo(
-            pedido, 
-            itemsPedido, 
-            pagamento
+            pedido,
+            itemsPedido,
+            pagamento,
+            conn=conn
         )
 
         return True
 
-    def getDescricaoProduto(self, ID_PRODUTO) -> str:
-        rec = (
-            ctx.session.query(ctx.mapProduto)
-            .filter(ctx.mapProduto.ID_PRODUTO == ID_PRODUTO)
-            .first()
-        )
-
-        descricaoProduto = "" if rec is None else rec.DESCRICAO_PRODUTO
-
-        return descricaoProduto
+    def getDescricaoProduto(self, ID_PRODUTO, conn=None) -> str:
+        return self._produtos.descricao_por_id_ou_vazio(ID_PRODUTO, conn=conn)
 
     async def lista_FormaPagto(self) -> List[listaFormaPagto]:
-
-        select1 = ctx.session.query(ctx.mapFormaPagto).order_by(
-            ctx.mapFormaPagto.DESCRICAO_FORMA
-        )
+        select1 = self._formasPagto.listar()
 
         lista = [
             listaFormaPagto(
-                ID_FORMA=row.ID_FORMA, 
+                ID_FORMA=row.ID_FORMA,
                 DESCRICAO_FORMA=row.DESCRICAO_FORMA,
                 TAXA_PAGAMENTO=0 if row.TAXA_PAGAMENTO is None else float(row.TAXA_PAGAMENTO)
             ).__dict__
@@ -897,148 +619,86 @@ class pedido:
         return lista
 
     def checaConsumidorFinal(self) -> clienteEndereco:
-        empresa = ctx.session.query(ctx.mapEmpresa).first()
+        with db.transaction() as conn:
+            empresa = self._empresas.buscar_padrao(conn=conn)
 
-        endereco_empresa = "ISENTO"
-        numero_endereco_empresa = "SN"
-        complemento_endereco_empresa = ""
-        bairro_empresa = "ISENTO"
-        cep_empresa = ""
-        municipio_empresa = ""
-        uf_empresa = ""
-        telefone_empresa = "11"
-        id_empresa = 1
+            endereco_empresa = "ISENTO"
+            numero_endereco_empresa = "SN"
+            complemento_endereco_empresa = ""
+            bairro_empresa = "ISENTO"
+            cep_empresa = ""
+            municipio_empresa = ""
+            uf_empresa = ""
+            telefone_empresa = "11"
+            id_empresa = 1
 
-        if empresa is not None:
-            endereco_raw = (
-                empresa.ENDERECO.strip()
-                if isinstance(empresa.ENDERECO, str)
-                else ""
-            )
+            if empresa is not None:
+                endereco_raw = (
+                    empresa.ENDERECO.strip()
+                    if isinstance(empresa.ENDERECO, str)
+                    else ""
+                )
 
-            if len(endereco_raw) > 0:
-                partes_endereco = [item.strip() for item in endereco_raw.split(",")]
+                if len(endereco_raw) > 0:
+                    partes_endereco = [item.strip() for item in endereco_raw.split(",")]
 
-                endereco_empresa = partes_endereco[0] if len(partes_endereco[0]) > 0 else "ISENTO"
+                    endereco_empresa = partes_endereco[0] if len(partes_endereco[0]) > 0 else "ISENTO"
 
-                if len(partes_endereco) > 1 and len(partes_endereco[1]) > 0:
-                    numero_endereco_empresa = self.qBase.onlyNumbers(partes_endereco[1]).strip()
+                    if len(partes_endereco) > 1 and len(partes_endereco[1]) > 0:
+                        numero_endereco_empresa = self.qBase.onlyNumbers(partes_endereco[1]).strip()
 
-                if len(partes_endereco) > 2 and len(partes_endereco[2]) > 0:
-                    complemento_endereco_empresa = partes_endereco[2]
+                    if len(partes_endereco) > 2 and len(partes_endereco[2]) > 0:
+                        complemento_endereco_empresa = partes_endereco[2]
 
-                if len(numero_endereco_empresa) == 0:
-                    numero_endereco_empresa = "SN"
+                    if len(numero_endereco_empresa) == 0:
+                        numero_endereco_empresa = "SN"
 
-            bairro_empresa = (
-                empresa.BAIRRO.strip()
-                if isinstance(empresa.BAIRRO, str) and len(empresa.BAIRRO.strip()) > 0
-                else "ISENTO"
-            )
-            cep_empresa = "" if empresa.CEP is None else str(empresa.CEP).strip()
-            municipio_empresa = "" if empresa.CIDADE is None else str(empresa.CIDADE).strip()
-            uf_empresa = "" if empresa.UF is None else str(empresa.UF).strip()
-            telefone_empresa = (
-                "11"
-                if empresa.TELEFONE is None or len(str(empresa.TELEFONE).strip()) == 0
-                else str(empresa.TELEFONE).strip()
-            )
-            id_empresa = 1 if empresa.ID_EMPRESA is None else int(empresa.ID_EMPRESA)
+                bairro_empresa = (
+                    empresa.BAIRRO.strip()
+                    if isinstance(empresa.BAIRRO, str) and len(empresa.BAIRRO.strip()) > 0
+                    else "ISENTO"
+                )
+                cep_empresa = "" if empresa.CEP is None else str(empresa.CEP).strip()
+                municipio_empresa = "" if empresa.CIDADE is None else str(empresa.CIDADE).strip()
+                uf_empresa = "" if empresa.UF is None else str(empresa.UF).strip()
+                telefone_empresa = (
+                    "11"
+                    if empresa.TELEFONE is None or len(str(empresa.TELEFONE).strip()) == 0
+                    else str(empresa.TELEFONE).strip()
+                )
+                id_empresa = 1 if empresa.ID_EMPRESA is None else int(empresa.ID_EMPRESA)
 
-        cliente = (
-            ctx.session.query(ctx.mapCliente)
-            .filter(ctx.mapCliente.NOME_CLIENTE.like("%{}%".format("CONSUMIDOR FINAL")))
-            .first()
-        )
+            cliente = self._clientes.buscar_consumidor_final(conn=conn)
 
-        if cliente is None:
-            cmd_cliente = ctx.tb_cliente.insert().values(
-                NOME_CLIENTE="CONSUMIDOR FINAL",
-                ENDERECO_CLIENTE=endereco_empresa,
-                NUMERO_ENDERECO=numero_endereco_empresa,
-                COMPLEMENTO_ENDERECO=complemento_endereco_empresa,
-                BAIRRO_CLIENTE=bairro_empresa,
-                CEP_CLIENTE=cep_empresa,
-                MUNICIPIO_CLIENTE=municipio_empresa,
-                UF_CLIENTE=uf_empresa,
-                TELEFONE_CLIENTE=telefone_empresa,
-                EMAIL_CLIENTE="consumidorfinal@gmail.com",
-                ID_EMPRESA=id_empresa,
-                SENHA_CLIENTE="",
-                NICKNAME="",
-                METADE=1,
-                UM_TERCO=1,
-                CPF="ISENTO",
-                IE="ISENTO",
-                TAXA_ENTREGA=0,
-            )
+            if cliente is None:
+                ID_CLIENTE = self._clientes.inserir_consumidor_final(
+                    endereco_empresa, numero_endereco_empresa, complemento_endereco_empresa,
+                    bairro_empresa, cep_empresa, municipio_empresa, uf_empresa, telefone_empresa,
+                    id_empresa, conn=conn
+                )
+            else:
+                ID_CLIENTE = int(cliente.ID_CLIENTE)
 
-            result_cliente = ctx.session.execute(cmd_cliente)
-            ID_CLIENTE = int(result_cliente.inserted_primary_key[0])
-        else:
-            ID_CLIENTE = int(cliente.ID_CLIENTE)
+            endereco = self._enderecos.buscar_primeiro_por_cliente(ID_CLIENTE, conn=conn)
 
-        endereco = (
-            ctx.session.query(ctx.mapEnderecoCliente)
-            .filter(ctx.mapEnderecoCliente.ID_CLIENTE == ID_CLIENTE)
-            .first()
-        )
-
-        if endereco is None:
-            cmd_endereco = ctx.tb_endereco_cliente.insert().values(
-                ID_CLIENTE=ID_CLIENTE,
-                ENDERECO=endereco_empresa,
-                NUMERO_ENDERECO=numero_endereco_empresa,
-                COMPLEMENTO_ENDERECO=complemento_endereco_empresa,
-                BAIRRO=bairro_empresa,
-                CEP=cep_empresa,
-                MUNICIPIO=municipio_empresa,
-                UF=uf_empresa,
-                ID_EMPRESA=id_empresa,
-                LATITUDE=0,
-                LONGITUDE=0,
-            )
-
-            result_endereco = ctx.session.execute(cmd_endereco)
-            ctx.session.commit()
-            ID_ENDERECO = int(result_endereco.inserted_primary_key[0])
-        else:
-            ctx.session.commit()
-            ID_ENDERECO = int(endereco.ID_ENDERECO)
+            if endereco is None:
+                ID_ENDERECO = self._enderecos.inserir_endereco_empresa(
+                    ID_CLIENTE, endereco_empresa, numero_endereco_empresa, complemento_endereco_empresa,
+                    bairro_empresa, cep_empresa, municipio_empresa, uf_empresa, id_empresa,
+                    conn=conn
+                )
+            else:
+                ID_ENDERECO = int(endereco.ID_ENDERECO)
 
         return clienteEndereco(ID_CLIENTE=ID_CLIENTE, ID_ENDERECO=ID_ENDERECO)
 
     async def getTransporte(self) -> int:
-        transporte = ctx.session.query(ctx.mapTransporte).all()
+        transporte = self._transportes.buscar_primeiro()
 
-        if len(transporte) == 0:
-            return None
-
-        ID_TRANSPORTE = [item for item in transporte][0].ID_TRANSPORTE
-
-        return int(ID_TRANSPORTE)
+        return None if transporte is None else int(transporte.ID_TRANSPORTE)
 
     async def listaAtendimento(self, NUMERO_PEDIDO):
-        filters = [
-            ctx.mapItemPedido.NUMERO_PEDIDO == NUMERO_PEDIDO,
-            ctx.mapItemPedido.ID_PRODUTO == ctx.mapProduto.ID_PRODUTO
-        ]
-
-        select1 = (
-            ctx.session.query(
-                ctx.mapItemPedido.NUMERO_PEDIDO,
-                ctx.mapItemPedido.NUMERO_ITEM,
-                ctx.mapItemPedido.ID_PRODUTO,
-                ctx.mapProduto.DESCRICAO_PRODUTO,
-                ctx.mapItemPedido.QTDE,
-                ctx.mapItemPedido.PRECO_UNITARIO,
-                ctx.mapItemPedido.VALOR_TOTAL,
-                ctx.mapProduto.ID_TRIBUTO,
-                ctx.mapProduto.ID_FAMILIA
-            )
-            .filter(*filters)
-            .all()
-        )
+        select1 = self._itensPedido.listar_com_produto(NUMERO_PEDIDO)
 
         lista = [
             itemPedidoCaixa(
@@ -1092,31 +752,18 @@ class pedido:
 
         return '\n'.join(lista)
 
-    def getNomeTransporte(self, ID_TRANSPORTE: int) -> str:
-        t = ctx.mapTransporte
+    def getNomeTransporte(self, ID_TRANSPORTE: int, conn=None) -> str:
+        return self._transportes.nome_por_id(ID_TRANSPORTE, conn=conn)
 
-        query = ctx.session.query(t).filter(t.ID_TRANSPORTE == ID_TRANSPORTE).all()
-
-        return query[0].NOME_TRANSPORTE if len(query) > 0 else ""
-
-    def getNomeCliente(self, ID_CLIENTE: int) -> str:
-        t = ctx.mapCliente
-
-        query = ctx.session.query(t).filter(t.ID_CLIENTE == ID_CLIENTE).all()
-
-        return query[0].NOME_CLIENTE if len(query) > 0 else ""
+    def getNomeCliente(self, ID_CLIENTE: int, conn=None) -> str:
+        return self._clientes.nome_por_id(ID_CLIENTE, conn=conn)
 
     async def listaPedidos(self, filtro: filtroPedido) -> List[listaDePedido]:
-        p = ctx.mapPedido
-
         soNumeros = self.qBase.onlyNumbers(filtro.FILTRO)
 
-        filters = []
         retorno = []
 
         if len(filtro.FILTRO) == len(soNumeros) and len(soNumeros) > 0:
-            filters.extend([p.NUMERO_PEDIDO == filtro.FILTRO])
-
             retorno = await self.getByNumeroPedido(filtro)
 
             if len(retorno) == 0 and filtro.ORIGEM == "Zé Delivery":
@@ -1132,187 +779,40 @@ class pedido:
         return retorno
 
     async def getByNumeroPedido(self, filtro: filtroPedido) -> List[listaDePedido]:
-        
-        sql = text(f"""
-            SELECT 
-                pg.NUMERO_PEDIDO,
-                pg.DATA_HORA,
-                p.STATUS_PEDIDO,
-                p.NOME_CLIENTE,
-                p.TOTAL_PEDIDO,
-                p.ORIGEM,
-                p.ID_TRANSPORTE,
-                t.NOME_TRANSPORTE,
-                p.ID_CLIENTE,
-                p.NUMERO_PEDIDO_IFOOD,
-                p.ENDERECO_CLIENTE,
-                p.TELEFONE_CLIENTE,
-                pg.FORMA_PAGTO,
-                pg.VALOR_PAGO,
-                pg.CODIGO_NSU,
-                pg.ID_PAGAMENTO,
-                CASE 
-                    WHEN EXISTS (
-                        SELECT 1 
-                        FROM tb_pedido_nfe pnf
-                        WHERE pnf.NUMERO_PEDIDO = pg.NUMERO_PEDIDO
-                        AND pnf.PROCESSADO = 10
-                    ) THEN 1
-                    ELSE 0
-                END AS nota
-            FROM tb_pedido p
-            JOIN tb_pedido_pagamento pg ON pg.NUMERO_PEDIDO = p.NUMERO_PEDIDO
-            LEFT JOIN tb_transporte t ON t.ID_TRANSPORTE = p.ID_TRANSPORTE 
-            WHERE p.NUMERO_PEDIDO = {filtro.FILTRO};
-        """)
-
-        query = ctx.session.execute(sql).fetchall()
+        query = self._pedidos.listar_por_numero(filtro.FILTRO)
 
         retorno = await self.retornoQueryPedidos(query)
 
         return retorno
 
     async def getByNumeroZe(self, filtro: filtroListaPedido) -> List[listaDePedido]:
-        sql = text(f"""
-            SELECT 
-                pg.NUMERO_PEDIDO,
-                pg.DATA_HORA,
-                p.STATUS_PEDIDO,
-                p.NOME_CLIENTE,
-                p.TOTAL_PEDIDO,
-                p.ORIGEM,
-                p.ID_TRANSPORTE,
-                t.NOME_TRANSPORTE,
-                p.ID_CLIENTE,
-                p.NUMERO_PEDIDO_IFOOD,
-                p.ENDERECO_CLIENTE,
-                p.TELEFONE_CLIENTE,
-                pg.FORMA_PAGTO,
-                pg.VALOR_PAGO,
-                pg.CODIGO_NSU,
-                pg.ID_PAGAMENTO,
-                CASE 
-                    WHEN EXISTS (
-                        SELECT 1 
-                        FROM tb_pedido_nfe pnf
-                        WHERE pnf.NUMERO_PEDIDO = pg.NUMERO_PEDIDO
-                        AND pnf.PROCESSADO = 10 
-                    ) THEN 1
-                    ELSE 0
-                END AS nota
-            FROM tb_pedido p
-            JOIN tb_pedido_pagamento pg ON pg.NUMERO_PEDIDO = p.NUMERO_PEDIDO
-            LEFT JOIN tb_transporte t ON t.ID_TRANSPORTE = p.ID_TRANSPORTE 
-            WHERE p.NUMERO_PEDIDO_ZE_DELIVERY = {filtro.FILTRO};
-        """)
-
-        query = ctx.session.execute(sql).fetchall()
+        query = self._pedidos.listar_por_numero_ze(filtro.FILTRO)
 
         retorno = await self.retornoQueryPedidos(query)
 
         return retorno
-    
-    async def getByNumeroIFood(self, filtro: filtroListaPedido) -> List[listaDePedido]:
-        sql = text(f"""
-            SELECT 
-                pg.NUMERO_PEDIDO,
-                pg.DATA_HORA,
-                p.STATUS_PEDIDO,
-                p.NOME_CLIENTE,
-                p.TOTAL_PEDIDO,
-                p.ORIGEM,
-                p.ID_TRANSPORTE,
-                t.NOME_TRANSPORTE,
-                p.ID_CLIENTE,
-                p.NUMERO_PEDIDO_IFOOD,
-                p.ENDERECO_CLIENTE,
-                p.TELEFONE_CLIENTE,
-                pg.FORMA_PAGTO,
-                pg.VALOR_PAGO,
-                pg.CODIGO_NSU,
-                pg.ID_PAGAMENTO,
-                CASE 
-                    WHEN EXISTS (
-                        SELECT 1 
-                        FROM tb_pedido_nfe pnf
-                        WHERE pnf.NUMERO_PEDIDO = pg.NUMERO_PEDIDO
-                        AND pnf.PROCESSADO = 10      
-                    ) THEN 1
-                    ELSE 0
-                END AS nota
-            FROM tb_pedido p
-            JOIN tb_pedido_pagamento pg ON pg.NUMERO_PEDIDO = p.NUMERO_PEDIDO
-            LEFT JOIN tb_transporte t ON t.ID_TRANSPORTE = p.ID_TRANSPORTE 
-            WHERE p.NUMERO_PEDIDO_IFOOD = {filtro.FILTRO};
-        """)
 
-        query = ctx.session.execute(sql).fetchall()
+    async def getByNumeroIFood(self, filtro: filtroListaPedido) -> List[listaDePedido]:
+        query = self._pedidos.listar_por_numero_ifood(filtro.FILTRO)
 
         retorno = await self.retornoQueryPedidos(query)
 
         return retorno
 
     async def getByDataHora(self, filtro: filtroListaPedido) -> List[listaDePedido]:
+        d1 = datetime.today() + timedelta(days=-15)
+        d2 = datetime.today() + timedelta(hours=1)
 
-        statuses = [str(item) for item in filtro.STATUS]
-
-        d1 = (datetime.today() + timedelta(days=-15)).strftime('%Y-%m-%d')
-        d2 = (datetime.today() + timedelta(hours=1)).strftime('%Y-%m-%d %H:%M')
-
-        sqlText = f"""
-            SELECT 
-                pg.NUMERO_PEDIDO,
-                pg.DATA_HORA,
-                p.STATUS_PEDIDO,
-                p.NOME_CLIENTE,
-                p.TOTAL_PEDIDO,
-                p.ORIGEM,
-                p.ID_TRANSPORTE,
-                t.NOME_TRANSPORTE,
-                p.ID_CLIENTE,
-                p.NUMERO_PEDIDO_IFOOD,
-                p.ENDERECO_CLIENTE,
-                p.TELEFONE_CLIENTE,
-                pg.FORMA_PAGTO,
-                pg.VALOR_PAGO,
-                pg.CODIGO_NSU,
-                pg.ID_PAGAMENTO,
-                CASE 
-                    WHEN EXISTS (
-                        SELECT 1 
-                        FROM tb_pedido_nfe pnf
-                        WHERE pnf.NUMERO_PEDIDO = pg.NUMERO_PEDIDO
-                        AND pnf.PROCESSADO = 10      
-                    ) THEN 1
-                    ELSE 0
-                END AS nota
-            FROM tb_pedido p
-            JOIN tb_pedido_pagamento pg ON pg.NUMERO_PEDIDO = p.NUMERO_PEDIDO
-            LEFT JOIN tb_transporte t ON t.ID_TRANSPORTE = p.ID_TRANSPORTE 
-            WHERE (p.DATA_HORA >= '{d1}' AND p.DATA_HORA < '{d2}') 
-        """
-
-        if len(filtro.FILTRO) > 0:
-            sqlText += f' AND p.NOME_CLIENTE like "%{filtro.FILTRO}%"'
-
-        if filtro.ORIGEM != "Todos":
-            sqlText += f' AND p.ORIGEM = "{filtro.ORIGEM}"'
-
-        if 0 not in filtro.STATUS:
-            sqlText += f' AND p.STATUS_PEDIDO in ({",".join(statuses)})'
-
-        sql = text(f'{sqlText} ORDER BY p.DATA_HORA desc LIMIT 50 OFFSET {filtro.START};')
-
-        query = ctx.session.execute(sql).fetchall()
+        query = self._pedidos.listar_por_periodo(
+            d1, d2, filtro.FILTRO, filtro.ORIGEM, filtro.STATUS, filtro.START
+        )
 
         retorno = await self.retornoQueryPedidos(query)
 
         return retorno
 
     async def retornoQueryPedidos(self, query) -> List[listaDePedido]:
-        e = ctx.mapEmpresa
-
-        empresa = ctx.session.query(e).all()[0]
+        empresa = self._empresas.buscar_padrao()
 
         retorno = []
 
@@ -1361,7 +861,7 @@ class pedido:
 
         return retorno
 
-    async def getItemPedido(self, item: ctx.mapItemPedido) -> str:
+    async def getItemPedido(self, item) -> str:
 
         obsItem = item.OBS_ITEM if item.OBS_ITEM is not None else ''
         
@@ -1370,10 +870,6 @@ class pedido:
         return retorno
     
     async def getPedido(self, filtro: filtroPedido):
-        p = ctx.mapPedido
-        ip = ctx.mapItemPedido
-        pg = ctx.mapPedidoPagamento
-
         numeroPedido = 0
 
         try:
@@ -1384,34 +880,12 @@ class pedido:
         if numeroPedido == 0:
             raise Exception("Numero de pedido inválido")
 
-        filters = [p.NUMERO_PEDIDO == numeroPedido]
+        rec = self._pedidos.buscar_resumo_edicao(numeroPedido)
 
-        pedido = (
-            ctx.session.query(
-                p.NUMERO_PEDIDO,
-                p.CPF,
-                p.ID_CLIENTE,
-                p.ID_ENDERECO,
-                p.NOME_CLIENTE,
-                p.ID_TRANSPORTE,
-                p.ID_CAIXA,
-                p.ORIGEM,
-                p.TAXA_ENTREGA,
-                p.ADICIONAL,
-                p.DESCONTO,
-                p.TOTAL_PRODUTOS,
-                p.TOTAL_PEDIDO,
-                p.TROCO,
-                p.INFO_ADICIONAL
-            )
-            .filter(*filters)
-            .all()
-        )
-
-        if len(pedido) == 0:
+        if rec is None:
             raise Exception("Pedido não encontrado na base do sistema")
 
-        items = ctx.session.query(ip).filter(ip.NUMERO_PEDIDO == numeroPedido).all()
+        items = self._itensPedido.listar_por_pedido(numeroPedido)
 
         itemsPedido = [
             editItemPedido(
@@ -1427,7 +901,7 @@ class pedido:
             for item in items
         ]
 
-        pag = ctx.session.query(pg).filter(pg.NUMERO_PEDIDO == numeroPedido).all()
+        pag = self._pagamentos.listar_por_pedido(numeroPedido)
 
         pagamentos = [
             editPedidoPagamento(
@@ -1440,8 +914,6 @@ class pedido:
             )
             for item in pag
         ]
-
-        rec = pedido[0]
 
         retorno = editPedido(
             NUMERO_PEDIDO=rec.NUMERO_PEDIDO,
@@ -1469,110 +941,58 @@ class pedido:
         return retorno
 
     async def deletaItemPedido(self, item: numeroItemPedido):
-        p = ctx.mapItemPedido
+        numeroPedido = self._itensPedido.numero_pedido_do_item(item.NUMERO_ITEM)
 
-        numeroPedido = (
-            ctx.session.query(p)
-            .filter(p.NUMERO_ITEM == item.NUMERO_ITEM)
-            .all()[0]
-            .NUMERO_PEDIDO
-        )
-
-        item = ctx.tb_item_pedido.delete().where(p.NUMERO_ITEM == item.NUMERO_ITEM)
-
-        ctx.session.execute(item)
-        ctx.session.commit()
+        self._itensPedido.deletar_por_numero_item(item.NUMERO_ITEM)
 
         await self.recalculaTotaisPedido(numeroPedido)
 
     async def deletaPagamentoFinanceiro(self, NUMERO_PEDIDO: int):
-        f = ctx.mapFinanceiro
-
-        cmd = ctx.tb_financeiro.delete().where(
-            f.NUMERO_COMANDA == NUMERO_PEDIDO
-            )
-
-        ctx.session.execute(cmd)
+        self._financeiro.deletar_por_comanda(NUMERO_PEDIDO)
 
     async def cancelaPedido(self, record: filtroCancelamento):
-        ip = ctx.mapItemPedido
-        p = ctx.mapPedido
-        pg = ctx.mapPedidoPagamento
-
-        u = ctx.mapUSUARIO
-
-        qu = ctx.session.query(u).filter(*[
-            u.SENHA_USUARIO == record.SENHA,
-            u.TIPO_USUARIO == 1
-        ]).all()
-
-        if len(qu) == 0:
+        if not self._usuarios.existe_admin_com_senha(record.SENHA):
             raise Exception('Senha incorreta para cancelar o pedido')
 
-        itens = (
-            ctx.session.query(ip).filter(ip.NUMERO_PEDIDO == record.NUMERO_PEDIDO).all()
-        )
+        pedido_atual = self._pedidos.buscar_por_numero(record.NUMERO_PEDIDO)
+        _status = pedido_atual.STATUS_PEDIDO
 
-        pedido = (
-            ctx.session.query(p)
-            .filter(p.NUMERO_PEDIDO == record.NUMERO_PEDIDO)
-            .all()[0]
-        )
+        with db.transaction() as conn:
+            itens = self._itensPedido.listar_por_pedido(record.NUMERO_PEDIDO, conn=conn)
 
-        _status = pedido.STATUS_PEDIDO
+            self._pedidos.atualizar_status(record.NUMERO_PEDIDO, 5, conn=conn)
 
-        cmd = (
-            ctx.tb_pedido.update()
-            .values(STATUS_PEDIDO=5)
-            .where(p.NUMERO_PEDIDO == record.NUMERO_PEDIDO)
-        )
+            if _status == 3:
+                [
+                    self.baixaEstoque(
+                        itemPedido(
+                            NUMERO_ITEM=item.NUMERO_ITEM,
+                            NUMERO_PEDIDO=item.NUMERO_PEDIDO,
+                            ID_PRODUTO=item.ID_PRODUTO,
+                            CODIGO_PRODUTO=item.CODIGO_PRODUTO,
+                            QTDE=item.QTDE,
+                            PRECO_UNITARIO=item.PRECO_UNITARIO,
+                            VALOR_TOTAL=item.VALOR_TOTAL,
+                            ID_TRIBUTO=item.ID_TRIBUTO,
+                            OBS_ITEM=item.OBS_ITEM,
+                            ID_ITEM_LOCAL=0,
+                            ID_TERMINAL=0,
+                        ),
+                        0,
+                        conn=conn,
+                    )
+                    for item in itens
+                ]
 
-        ctx.session.execute(cmd)
-
-        if _status == 3:
-            [
-                self.baixaEstoque(
-                    itemPedido(
-                        NUMERO_ITEM=item.NUMERO_ITEM,
-                        NUMERO_PEDIDO=item.NUMERO_PEDIDO,
-                        ID_PRODUTO=item.ID_PRODUTO,
-                        CODIGO_PRODUTO=item.CODIGO_PRODUTO,
-                        QTDE=item.QTDE,
-                        PRECO_UNITARIO=item.PRECO_UNITARIO,
-                        VALOR_TOTAL=item.VALOR_TOTAL,
-                        ID_TRIBUTO=item.ID_TRIBUTO,
-                        OBS_ITEM=item.OBS_ITEM,
-                        ID_ITEM_LOCAL=0,
-                        ID_TERMINAL=0,
-                    ),
-                    0,
-                )
-                for item in itens
-            ]
-
-        pagamentos = (
-            ctx.session.query(pg).filter(pg.NUMERO_PEDIDO == record.NUMERO_PEDIDO).all()
-        )
-
-        ids = [item.NUMERO_PEDIDO for item in pagamentos]
-
-        [await self.deletaPagamentoFinanceiro(id) for id in ids]
-
-        ctx.session.commit()
+            # Simplificação: o código anterior deletava tb_financeiro uma vez
+            # por PAGAMENTO do pedido — todos com o mesmo NUMERO_PEDIDO, então
+            # repetia o mesmo DELETE (sem efeito nas repetições). Um DELETE já
+            # cobre tudo.
+            self._financeiro.deletar_por_comanda(record.NUMERO_PEDIDO, conn=conn)
 
     async def savePedido(self, record: dadosPedido):
-        p = ctx.mapPedido
-        pg = ctx.mapPedidoPagamento
-        c = ctx.mapCliente
-        e = ctx.mapEnderecoCliente
-
-        nomeCliente = ctx.session.query(c.NOME_CLIENTE).filter(
-            c.ID_CLIENTE == record.ID_CLIENTE
-        ).first()[0]
-
-        endereco = ctx.session.query(e).filter(
-            e.ID_ENDERECO == record.ID_ENDERECO
-        ).first()
+        nomeCliente = self._clientes.nome_por_id(record.ID_CLIENTE)
+        endereco = self._enderecos.buscar_por_id(record.ID_ENDERECO)
 
         totalPedido = round(
             (record.TOTAL_PRODUTOS + record.TAXA_ENTREGA + record.ADICIONAL)
@@ -1580,11 +1000,7 @@ class pedido:
             2,
         )
 
-        qPg = ctx.session.query(
-            pg
-        ).filter(
-            pg.NUMERO_PEDIDO == record.NUMERO_PEDIDO
-        ).all()
+        qPg = self._pagamentos.listar_por_pedido(record.NUMERO_PEDIDO)
 
         somaPagamentos = sum(
             [float(item.VALOR_PAGO) for item in qPg if item.VALOR_PAGO is not None]
@@ -1595,68 +1011,42 @@ class pedido:
         if somaPagamentos > totalPedido:
             troco = round(somaPagamentos - totalPedido, 2)
 
-        cmd = ctx.tb_pedido.update().values(
-            ID_CLIENTE=record.ID_CLIENTE,
-            NOME_CLIENTE = nomeCliente,
-            ID_ENDERECO=record.ID_ENDERECO,
-            ENDERECO_CLIENTE = F'{endereco.ENDERECO}, {endereco.NUMERO_ENDERECO} {endereco.COMPLEMENTO_ENDERECO}',
-            BAIRRO_CLIENTE = endereco.BAIRRO,
-            ID_TRANSPORTE=record.ID_TRANSPORTE,
-            TOTAL_PRODUTOS=record.TOTAL_PRODUTOS,
-            TAXA_ENTREGA=record.TAXA_ENTREGA,
-            ADICIONAL=record.ADICIONAL,
-            DESCONTO=record.DESCONTO,
-            INFO_ADICIONAL=record.INFO_ADICIONAL,
-            TOTAL_PEDIDO=totalPedido,
-            TROCO=troco
-        ).where(
-            p.NUMERO_PEDIDO == record.NUMERO_PEDIDO
+        self._pedidos.atualizar_dados_edicao(
+            record.NUMERO_PEDIDO,
+            record.ID_CLIENTE,
+            nomeCliente,
+            record.ID_ENDERECO,
+            f'{endereco.ENDERECO}, {endereco.NUMERO_ENDERECO} {endereco.COMPLEMENTO_ENDERECO}',
+            endereco.BAIRRO,
+            record.ID_TRANSPORTE,
+            record.TOTAL_PRODUTOS,
+            record.TAXA_ENTREGA,
+            record.ADICIONAL,
+            record.DESCONTO,
+            record.INFO_ADICIONAL,
+            totalPedido,
+            troco,
         )
-        
-        ctx.session.execute(cmd)
-        ctx.session.commit()
 
         await self.refazFinanceiro(
             qPg,
             record
             )
 
-        ctx.session.commit()
-
-    async def refazFinanceiro(self, pagamentos: List[ctx.mapPedidoPagamento], record: dadosPedido):
-        f = ctx.mapFormaPagto
-        fin = ctx.mapFinanceiro
-        ip = ctx.mapItemPedido
-        c = ctx.mapCliente
-
+    async def refazFinanceiro(self, pagamentos: List, record: dadosPedido):
         formasPagto = [item.FORMA_PAGTO for item in pagamentos]
 
-        filters = [
-            f.DESCRICAO_FORMA.in_(formasPagto),
-            f.PAGTO_FUTURO == 1
-        ]
-
-        recordFormaPagto = ctx.session.query(f).filter(*
-            filters
-        ).all()
-
-        if not any(recordFormaPagto):
+        if not self._formasPagto.existe_pagto_futuro_entre(formasPagto):
             return
 
-        recordFinanceiro = ctx.session.query(fin).filter(
-            fin.NUMERO_COMANDA == record.NUMERO_PEDIDO
-        ).first()
-
-        if recordFinanceiro is None:
+        if self._financeiro.buscar_por_comanda(record.NUMERO_PEDIDO) is None:
             return
 
-        itemsPedido = ctx.session.query(ip).filter(
-            ip.NUMERO_PEDIDO == record.NUMERO_PEDIDO
-        ).all()
+        itemsPedido = self._itensPedido.listar_por_pedido(record.NUMERO_PEDIDO)
 
         items = [
             produtoQtde(
-                DESCRICAO_PRODUTO=self.getDescricaoProduto(item.ID_PRODUTO), 
+                DESCRICAO_PRODUTO=self.getDescricaoProduto(item.ID_PRODUTO),
                 QTDE=item.QTDE
                 )
             for item in itemsPedido
@@ -1666,9 +1056,7 @@ class pedido:
             [f"[{item.DESCRICAO_PRODUTO}, Qtde: {str(item.QTDE)}]" for item in items]
         )
 
-        nomeCliente = ctx.session.query(c).filter(
-            c.ID_CLIENTE == record.ID_CLIENTE
-        ).first().NOME_CLIENTE
+        nomeCliente = self._clientes.buscar_por_id(record.ID_CLIENTE).NOME_CLIENTE
 
         descricao = "".join(
             [
@@ -1680,45 +1068,25 @@ class pedido:
         if len(descricao) > 250:
             descricao = descricao[0: 250]
 
-        cmdFinanceiro = ctx.tb_financeiro.update().values(
-            HISTORICO = descricao
-        ).where(
-            fin.NUMERO_COMANDA == record.NUMERO_PEDIDO
-        )
-
-        ctx.session.execute(cmdFinanceiro)
-        ctx.session.commit()
+        self._financeiro.atualizar_historico(record.NUMERO_PEDIDO, descricao)
 
     async def isPagtoFuturo(self, DESCRICAO: str) -> List:
-        f = ctx.mapFormaPagto
+        formaPagto = self._formasPagto.buscar_por_descricao(DESCRICAO)
 
-        filters = [
-            f.DESCRICAO_FORMA == DESCRICAO,
-            f.PAGTO_FUTURO == 1
-        ]
+        if formaPagto is not None and formaPagto.PAGTO_FUTURO == 1:
+            return [DESCRICAO]
 
-        query = ctx.session.query(f.DESCRICAO_FORMA).filter(
-            *filters
-        ).all()
-
-        return query
+        return []
 
     async def refazPagamentoFuturo(self, NUMERO_PEDIDO: int):
-        pg = ctx.mapPedidoPagamento
-        ip = ctx.mapPedidoPagamento
-        p = ctx.mapPedido
-        c = ctx.mapCliente
-
-        pagamentos = ctx.session.query(pg).filter(
-            pg.NUMERO_PEDIDO == NUMERO_PEDIDO
-        ).all()
+        pagamentos = self._pagamentos.listar_por_pedido(NUMERO_PEDIDO)
 
         listaP = [await self.isPagtoFuturo(item.FORMA_PAGTO) for item in pagamentos]
 
         if not any(listaP):
             await self.deletaPagamentoFinanceiro(NUMERO_PEDIDO)
             return
-        
+
         recordPagamento = [
             pedidoPagamentoFinanceiro(
                 VALOR_PAGO=float(item.VALOR_PAGO),
@@ -1727,26 +1095,22 @@ class pedido:
             for item in pagamentos
         ][0]
 
-        items = ctx.session.query(ip.ID_PRODUTO, ip.QTDE).filter(
-            ip.NUMERO_PEDIDO == NUMERO_PEDIDO
-        ).all()
+        # Correção: o código anterior reaproveitava por engano a tabela de
+        # pagamento (sem coluna ID_PRODUTO) no lugar da tabela de itens do
+        # pedido — levantava AttributeError sempre que este trecho era
+        # alcançado, ou seja, sempre que o pedido tinha pagamento do tipo
+        # "futuro" (exatamente o caso que esta função existe pra tratar).
+        itensPedido = self._itensPedido.listar_por_pedido(NUMERO_PEDIDO)
 
         itemsPedido = [
             itemPedidoFinanceiro(
                 PRODUTO=self.getDescricaoProduto(item.ID_PRODUTO),
                 QTDE= float(item.QTDE)
             )
-            for item in items
+            for item in itensPedido
         ]
 
-        qC = ctx.session.query(
-            p.NUMERO_PEDIDO, 
-            p.ID_CLIENTE, 
-            c.NOME_CLIENTE,
-            p.TOTAL_PEDIDO
-        ).filter(*
-            [p.NUMERO_PEDIDO == NUMERO_PEDIDO, p.ID_CLIENTE == c.ID_CLIENTE]
-        ).first()
+        qC = self._pedidos.buscar_cliente_e_total(NUMERO_PEDIDO)
 
         nomeCliente = qC.NOME_CLIENTE
         idCliente = qC.ID_CLIENTE
@@ -1765,13 +1129,9 @@ class pedido:
         )
 
     async def recalculaTotaisPedido(self, NUMERO_PEDIDO: int):
-        p = ctx.mapPedido
-        pg = ctx.mapPedidoPagamento
-        i = ctx.mapItemPedido
+        record = self._pedidos.buscar_por_numero(NUMERO_PEDIDO)
 
-        record = ctx.session.query(p).filter(p.NUMERO_PEDIDO == NUMERO_PEDIDO).all()[0]
-
-        items = ctx.session.query(i).filter(i.NUMERO_PEDIDO == NUMERO_PEDIDO).all()
+        items = self._itensPedido.listar_por_pedido(NUMERO_PEDIDO)
 
         somaProdutos = 0.00
 
@@ -1786,11 +1146,7 @@ class pedido:
             2,
         )
 
-        qPg = (
-            ctx.session.query(pg.NUMERO_PEDIDO, pg.VALOR_PAGO, pg.FORMA_PAGTO)
-            .filter(pg.NUMERO_PEDIDO == record.NUMERO_PEDIDO)
-            .all()
-        )
+        qPg = self._pagamentos.listar_por_pedido(NUMERO_PEDIDO)
 
         somaPagamentos = sum(
             [float(item.VALOR_PAGO) for item in qPg if item.VALOR_PAGO is not None]
@@ -1801,23 +1157,12 @@ class pedido:
         if somaPagamentos > totalPedido:
             troco = round(somaPagamentos - totalPedido, 2)
 
-        cmd = (
-            ctx.tb_pedido.update()
-            .values(TOTAL_PRODUTOS=somaProdutos, TOTAL_PEDIDO=totalPedido, TROCO=troco)
-            .where(p.NUMERO_PEDIDO == record.NUMERO_PEDIDO)
-        )
-
-        ctx.session.execute(cmd)
-        ctx.session.commit()
+        self._pedidos.atualizar_totais(NUMERO_PEDIDO, somaProdutos, totalPedido, troco)
 
         await self.refazPagamentoFuturo(NUMERO_PEDIDO)
 
     def addItem(self, record: itemPedido):
-        p = ctx.mapProduto
-
-        produto = (
-            ctx.session.query(p).filter(p.ID_PRODUTO == record.ID_PRODUTO).all()[0]
-        )
+        produto = self._produtos.buscar_codigo_tributo_preco(record.ID_PRODUTO)
 
         record.CODIGO_PRODUTO = produto.CODIGO_PRODUTO
         record.ID_TRIBUTO = produto.ID_TRIBUTO
@@ -1829,11 +1174,7 @@ class pedido:
         asyncio.run(self.recalculaTotaisPedido(record.NUMERO_PEDIDO))
 
     async def listaItens(self, filtro: filtroNumeroPedido) -> List[editItemPedido]:
-        i = ctx.mapItemPedido
-
-        NUMERO_PEDIDO = filtro.NUMERO_PEDIDO
-
-        query = ctx.session.query(i).filter(i.NUMERO_PEDIDO == NUMERO_PEDIDO).all()
+        query = self._itensPedido.listar_por_pedido(filtro.NUMERO_PEDIDO)
 
         retorno = [
             editItemPedido(
@@ -1854,18 +1195,9 @@ class pedido:
         return retorno
 
     async def getTotalPedido(self, filtro: filtroNumeroPedido) -> TOTAL_PEDIDO:
-        p = ctx.mapPedido
-        i = ctx.mapItemPedido
+        record = self._pedidos.buscar_por_numero(filtro.NUMERO_PEDIDO)
 
-        record = (
-            ctx.session.query(p)
-            .filter(p.NUMERO_PEDIDO == filtro.NUMERO_PEDIDO)
-            .all()[0]
-        )
-
-        items = (
-            ctx.session.query(i).filter(i.NUMERO_PEDIDO == filtro.NUMERO_PEDIDO).all()
-        )
+        items = self._itensPedido.listar_por_pedido(filtro.NUMERO_PEDIDO)
 
         somaProdutos = 0.00
 
@@ -1891,20 +1223,14 @@ class pedido:
         return retorno
 
     async def get_ID_forma_pagamento(self, DESCRICAO: str) -> int:
-        f = ctx.mapFormaPagto
+        forma = self._formasPagto.buscar_por_descricao(DESCRICAO)
 
-        query = ctx.session.query(f).filter(f.DESCRICAO_FORMA == DESCRICAO).all()
-
-        return query[0].ID_FORMA if len(query) > 0 else 0
+        return forma.ID_FORMA if forma is not None else 0
 
     async def listaPagamentos(
         self, filtro: filtroNumeroPedido
     ) -> List[pagamentoPedido]:
-        pg = ctx.mapPedidoPagamento
-
-        query = (
-            ctx.session.query(pg).filter(pg.NUMERO_PEDIDO == filtro.NUMERO_PEDIDO).all()
-        )
+        query = self._pagamentos.listar_por_pedido(filtro.NUMERO_PEDIDO)
 
         retorno = [
             pagamentoPedido(
@@ -1922,142 +1248,62 @@ class pedido:
         return retorno
 
     async def deleteItemPagamento(self, filtro: filtroIDPagamento):
-        pg = ctx.mapPedidoPagamento
+        rec = self._pagamentos.buscar_por_id(filtro.ID_PAGAMENTO)
+        numeroPedido = rec.NUMERO_PEDIDO
 
-        numeroPedido = ctx.session.query(pg).filter(pg.ID_PAGAMENTO == filtro.ID_PAGAMENTO).first().NUMERO_PEDIDO
-
-        cmd = ctx.tb_pedido_pagamento.delete().where(
-            pg.ID_PAGAMENTO == filtro.ID_PAGAMENTO
-        )
-
-        ctx.session.execute(cmd)
-        ctx.session.commit()
+        self._pagamentos.deletar_por_id(filtro.ID_PAGAMENTO)
 
         await self.recalculaTotaisPedido(numeroPedido)
-        
+
     async def addItemPagamento(self, dados: pagamentoPedido):
-        p = ctx.mapPedido
+        pedido_atual = self._pedidos.buscar_por_numero(dados.NUMERO_PEDIDO)
 
-        pedido = (
-            ctx.session.query(p).filter(p.NUMERO_PEDIDO == dados.NUMERO_PEDIDO).all()[0]
+        self._pagamentos.inserir_avulso(
+            dados.NUMERO_PEDIDO,
+            pedido_atual.DATA_HORA,
+            dados.DESCRICAO_FORMA,
+            dados.VALOR_PAGO,
+            pedido_atual.ID_CAIXA,
+            pedido_atual.ORIGEM,
         )
-
-        cmd = ctx.tb_pedido_pagamento.insert().values(
-            ID_PAGAMENTO=0,
-            NUMERO_PEDIDO=dados.NUMERO_PEDIDO,
-            DATA_HORA=pedido.DATA_HORA,
-            FORMA_PAGTO=dados.DESCRICAO_FORMA,
-            VALOR_PAGO=dados.VALOR_PAGO,
-            ID_CAIXA=pedido.ID_CAIXA,
-            ORIGEM=pedido.ORIGEM,
-            ID_PAGAMENTO_LOCAL=0,
-            ID_TERMINAL=0,
-            CODIGO_NSU="",
-            VALOR_PAGO_STONE=0,
-            DATA_AUTORIZACAO=None,
-            BANDEIRA="",
-        )
-
-        ctx.session.execute(cmd)
-        ctx.session.commit()
 
         await self.recalculaTotaisPedido(dados.NUMERO_PEDIDO)
 
     async def concluiPagamento(self, dados: conclusaoPagamento):
-        if dados.IMPRESSAO == True:
-            cmd = ctx.tb_fila_comanda.insert().values(
-                ID_FILA=0,
-                NUMERO_COMANDA=dados.NUMERO_PEDIDO,
-                PROCESSADO=dados.NUMERO_IMPRESSORA,
-            )
+        with db.transaction() as conn:
+            if dados.IMPRESSAO == True:
+                self._filaComanda.inserir(dados.NUMERO_PEDIDO, dados.NUMERO_IMPRESSORA, conn=conn)
 
-            ctx.session.execute(cmd)
-
-        if dados.FISCAL == True:
-            cmd = ctx.tb_pedido_nfe.insert().values(
-                ID_PEDIDO_NFE=0,
-                NUMERO_PEDIDO=dados.NUMERO_PEDIDO,
-                XML_NOTA="",
-                RESPOSTA_SEFAZ="",
-                NUMERO_NF=0,
-                SERIE_NF="1",
-                CHAVE_ACESSO_NF="",
-                PROTOCOLO_AUTORIZACAO="",
-                PROCESSADO=0,
-                ASSINATURA_NFCE="",
-                DATA_AUTORIZACAO_NFCE="",
-                CHAVE_PEDIDO="",
-                XML_DEVOLUCAO="",
-                NUMERO_NF_DEVOLUCAO=0,
-                GERAR_DANFE=0,
-                ID_EMPRESA=1,
-                CHAVE_NF_DEVOLUCAO="",
-                ID_PEDIDO_NFE_LOCAL=0,
-                ID_TERMINAL="",
-            )
-
-            ctx.session.execute(cmd)
-
-        ctx.session.commit()
+            if dados.FISCAL == True:
+                self._pedidoNFe.inserir(
+                    numero_pedido=dados.NUMERO_PEDIDO,
+                    numero_nf=0,
+                    serie_nf="1",
+                    processado=0,
+                    conn=conn,
+                )
 
     async def emiteNFCe(self, dados: emissaoNFCe):
-        nf = ctx.mapPedidoNFe
-        e = ctx.mapEmpresa
-        p = ctx.mapPedido
-
-        filters = [nf.NUMERO_PEDIDO == dados.NUMERO_PEDIDO, nf.PROCESSADO == 0]
-
-        existingQueue = ctx.session.query(nf).filter(*filters).all()
+        existingQueue = self._pedidoNFe.listar_processadas(dados.NUMERO_PEDIDO, 0)
 
         if len(existingQueue) > 0:
             return
 
         if len(dados.CPF) > 0:
-            cmd = (
-                ctx.tb_pedido.update()
-                .values(CPF=dados.CPF)
-                .where(p.NUMERO_PEDIDO == dados.NUMERO_PEDIDO)
-            )
+            self._pedidos.atualizar_cpf(dados.NUMERO_PEDIDO, dados.CPF)
 
-            ctx.session.execute(cmd)
+        empresa = self._empresas.numero_e_serie_nfce()
 
-        empresa = ctx.session.query(e).all()
-
-        cmd = ctx.tb_pedido_nfe.insert().values(
-            ID_PEDIDO_NFE=0,
-            NUMERO_PEDIDO=dados.NUMERO_PEDIDO,
-            XML_NOTA="",
-            RESPOSTA_SEFAZ="",
-            NUMERO_NF=0,
-            SERIE_NF=empresa[0].SERIE_NFCE,
-            CHAVE_ACESSO_NF="",
-            PROTOCOLO_AUTORIZACAO="",
-            PROCESSADO=1,
-            ASSINATURA_NFCE="",
-            DATA_AUTORIZACAO_NFCE="",
-            CHAVE_PEDIDO="",
-            XML_DEVOLUCAO="",
-            NUMERO_NF_DEVOLUCAO=0,
-            GERAR_DANFE=0,
-            ID_EMPRESA=empresa[0].ID_EMPRESA,
-            CHAVE_NF_DEVOLUCAO="",
-            ID_PEDIDO_NFE_LOCAL=0,
-            ID_TERMINAL=0,
+        self._pedidoNFe.inserir(
+            numero_pedido=dados.NUMERO_PEDIDO,
+            numero_nf=0,
+            serie_nf=empresa["SERIE_NFCE"],
+            processado=1,
+            id_empresa=empresa["ID_EMPRESA"],
         )
-
-        ctx.session.execute(cmd)
-        ctx.session.commit()
 
     async def checaEmissaoNFCe(self, filtro: filtroNumeroPedido) -> NFCe_Processada:
-        nf = ctx.mapPedidoNFe
-
-        query = (
-            ctx.session.query(nf)
-            .filter(
-                *(nf.NUMERO_PEDIDO == filtro.NUMERO_PEDIDO, nf.PROCESSADO.in_((10, 2)))
-            )
-            .all()
-        )
+        query = self._pedidoNFe.listar_por_status(filtro.NUMERO_PEDIDO, [10, 2])
 
         autorizado = list(filter(lambda e: e.PROCESSADO == 10, query))
 
@@ -2098,93 +1344,42 @@ class pedido:
         )
 
     async def imprimePedido(self, dados: impressaoAvulsa):
-        cmd = ctx.tb_fila_comanda.insert().values(
-            ID_FILA=0,
-            NUMERO_COMANDA=dados.NUMERO_PEDIDO,
-            PROCESSADO=dados.NUMERO_IMPRESSORA,
-        )
-
-        ctx.session.execute(cmd)
-        ctx.session.commit()
+        self._filaComanda.inserir(dados.NUMERO_PEDIDO, dados.NUMERO_IMPRESSORA)
 
     async def buscaPedidoImpressao(
         self, filtro: filtroImpressaoPedido
     ) -> List[impressaoPedidoBalcao]:
         retorno = []
 
-        f = ctx.mapFilaComanda
-        p = ctx.mapPedido
-        pg = ctx.mapPedidoPagamento
-        ip = ctx.mapItemPedido
-        c = ctx.mapCliente
-        e = ctx.mapEnderecoCliente
-        at = ctx.mapAtendimentoComanda
-        pr = ctx.mapProduto
-        t = ctx.mapTransporte
-
-        filas = ctx.session.query(f).filter(f.PROCESSADO == filtro.MAQUINA).all()
-
-        updated = False
+        filas = self._filaComanda.listar_por_maquina(filtro.MAQUINA)
 
         for fila in filas:
-            Pedido = (
-                ctx.session.query(p)
-                .filter(p.NUMERO_PEDIDO == fila.NUMERO_COMANDA)
-                .all()
-            )
-
-            items = (
-                ctx.session.query(ip)
-                .filter(ip.NUMERO_PEDIDO == fila.NUMERO_COMANDA)
-                .all()
-            )
-
-            pagamento = (
-                ctx.session.query(pg)
-                .filter(pg.NUMERO_PEDIDO == fila.NUMERO_COMANDA)
-                .all()
-            )
+            Pedido = self._pedidos.buscar_por_numeros([fila.NUMERO_COMANDA])
+            items = self._itensPedido.listar_por_pedido(fila.NUMERO_COMANDA)
+            pagamento = self._pagamentos.listar_por_pedido(fila.NUMERO_COMANDA)
 
             if len(Pedido) == 0 or len(items) == 0 or len(pagamento) == 0:
-                cmdDelete = ctx.tb_fila_comanda.delete().where(
-                    f.NUMERO_COMANDA == fila.NUMERO_COMANDA
-                )
+                self._filaComanda.deletar_por_comanda(fila.NUMERO_COMANDA)
 
-                ctx.session.execute(cmdDelete)
-                updated = True
+        pedidos = self._filaComanda.listar_numeros_distintos_por_maquina(filtro.MAQUINA)
 
-        if updated:
-            ctx.session.commit()
-
-        pedidos = (
-            ctx.session.query(f.NUMERO_COMANDA)
-            .distinct()
-            .filter(f.PROCESSADO == filtro.MAQUINA)
-            .all()
-        )
-
-        pedidos = [item[0] for item in pedidos]
-
-        query = ctx.session.query(p).filter(p.NUMERO_PEDIDO.in_(pedidos)).all()
+        query = self._pedidos.buscar_por_numeros(pedidos)
 
         nComanda = query[0].NUMERO_PEDIDO if len(query) > 0 else 0
 
         if nComanda == 0:
             return []
 
-        pedido = ctx.session.query(p).filter(p.NUMERO_PEDIDO.in_(pedidos)).first()
+        # Simplificação: o código anterior rodava a mesma consulta (mesmo
+        # filtro `IN`) duas vezes seguidas só pra pegar a primeira linha —
+        # `query[0]` já é essa linha.
+        pedido = query[0]
 
-        dadosCliente = (
-            ctx.session.query(c).filter(c.ID_CLIENTE == pedido.ID_CLIENTE).first()
-        )
+        dadosCliente = self._clientes.buscar_por_id(pedido.ID_CLIENTE)
 
-        dadosEndereco = (
-            ctx.session.query(e).filter(e.ID_ENDERECO == pedido.ID_ENDERECO).first()
-        )
+        dadosEndereco = self._enderecos.buscar_por_id(pedido.ID_ENDERECO)
 
-        pag = (
-            ctx.session.query(pg).filter(pg.NUMERO_PEDIDO == pedido.NUMERO_PEDIDO).all()
-        )
+        pag = self._pagamentos.listar_por_pedido(pedido.NUMERO_PEDIDO)
 
         formasPagamento = [
             FORMAS_PAGTO_IMPRESSAO(
@@ -2194,9 +1389,7 @@ class pedido:
             for item in pag
         ]
 
-        itemPedido = (
-            ctx.session.query(ip).filter(ip.NUMERO_PEDIDO == pedido.NUMERO_PEDIDO).all()
-        )
+        itemPedido = self._itensPedido.listar_por_pedido(pedido.NUMERO_PEDIDO)
 
         percentual = (f"% geral", f"% sobre o pagto")
 
@@ -2221,11 +1414,7 @@ class pedido:
             float(pedido.TAXA_ENTREGA) if pedido.TAXA_ENTREGA is not None else 0
         )
 
-        qAtendimento = (
-            ctx.session.query(at)
-            .filter(at.NUMERO_COMANDA == pedido.NUMERO_PEDIDO)
-            .all()
-        )
+        qAtendimento = self._atendimentoComanda.listar_por_comanda(pedido.NUMERO_PEDIDO)
 
         atendimento = (
             qAtendimento[0].NUMERO_COMANDA_ATENDIMENTO if len(qAtendimento) > 0 else 0
@@ -2234,11 +1423,8 @@ class pedido:
         nomeMesa = qAtendimento[0].NOME_MESA if len(qAtendimento) > 0 else ""
 
         for item in items:
-            produto = (
-                ctx.session.query(pr).filter(pr.ID_PRODUTO == item.ID_PRODUTO).first()
-            )
+            descricaoProduto = self._produtos.descricao_por_id(item.ID_PRODUTO)
 
-            descricaoProduto = produto.DESCRICAO_PRODUTO
             obs = item.OBS_ITEM
 
             endereco = "".join(
@@ -2280,15 +1466,7 @@ class pedido:
 
             obs += f" {self.qBase.cleanSpecialChars(dadosCliente.OBS_CLIENTE)}"
 
-            transporte = (
-                ctx.session.query(t)
-                .filter(t.ID_TRANSPORTE == pedido.ID_TRANSPORTE)
-                .all()
-            )
-
-            nomeTransporte = (
-                transporte[0].NOME_TRANSPORTE if len(transporte) > 0 else ""
-            )
+            nomeTransporte = self._transportes.nome_por_id(pedido.ID_TRANSPORTE)
 
             retorno.append(
                 impressaoPedidoBalcao(
@@ -2347,35 +1525,13 @@ class pedido:
         return retorno
 
     async def getDadosNFCe(self, filtro: filtroNumeroPedido) -> List[dadosNFCe]:
-        p = ctx.mapPedido
-        ip = ctx.mapItemPedido
-        pg = ctx.mapPedidoPagamento
-        e = ctx.mapEmpresa
-        pnf = ctx.mapPedidoNFe
-        c = ctx.mapCliente
-        en = ctx.mapEnderecoCliente
-        pr = ctx.mapProduto
-        t = ctx.mapTransporte
-        m = ctx.mapMunicipio
-        tr = ctx.mapTributo
-
         retorno = []
 
-        pedido = (
-            ctx.session.query(p).filter(p.NUMERO_PEDIDO == filtro.NUMERO_PEDIDO).first()
-        )
+        pedido = self._pedidos.buscar_por_numero(filtro.NUMERO_PEDIDO)
 
-        itemsPedido = (
-            ctx.session.query(ip).filter(ip.NUMERO_PEDIDO == filtro.NUMERO_PEDIDO).all()
-        )
+        itemsPedido = self._itensPedido.listar_por_pedido(filtro.NUMERO_PEDIDO)
 
-        p = (1, 10)
-
-        pedidoNFe = (
-            ctx.session.query(pnf)
-            .filter(pnf.NUMERO_PEDIDO == filtro.NUMERO_PEDIDO)
-            .all()
-        )
+        pedidoNFe = self._pedidoNFe.listar_por_pedido(filtro.NUMERO_PEDIDO)
 
         if len(pedidoNFe) == 0:
             raise Exception("Pedido não existe")
@@ -2384,13 +1540,11 @@ class pedido:
         ID_ENDERECO = pedido.ID_ENDERECO
         ID_EMITENTE = pedidoNFe[0].ID_EMPRESA
 
-        dadosEmpresa = ctx.session.query(e).filter(e.ID_EMPRESA == ID_EMITENTE).first()
+        dadosEmpresa = self._empresas.buscar_por_id(ID_EMITENTE)
 
-        dadosCliente = ctx.session.query(c).filter(c.ID_CLIENTE == ID_CLIENTE).first()
+        dadosCliente = self._clientes.buscar_por_id(ID_CLIENTE)
 
-        dadosEndereco = (
-            ctx.session.query(en).filter(en.ID_ENDERECO == ID_ENDERECO).first()
-        )
+        dadosEndereco = self._enderecos.buscar_por_id(ID_ENDERECO)
 
         if dadosEndereco.ENDERECO is None or len(dadosEndereco.ENDERECO.strip()) == 0:
             dadosEndereco.ENDERECO = dadosEmpresa.ENDERECO
@@ -2405,9 +1559,7 @@ class pedido:
             FORMAS_PAGTO_IMPRESSAO(
                 DESCRICAO=item.FORMA_PAGTO, VALOR=self.qBase.currency(item.VALOR_PAGO)
             )
-            for item in ctx.session.query(pg)
-            .filter(pg.NUMERO_PEDIDO == filtro.NUMERO_PEDIDO)
-            .all()
+            for item in self._pagamentos.listar_por_pedido(filtro.NUMERO_PEDIDO)
         ]
 
         TOTAL_QTDE = sum([int(item.QTDE) for item in itemsPedido])
@@ -2429,10 +1581,14 @@ class pedido:
             semNumero = pedidoNFe[0].NUMERO_NF == 0
 
             if pedidoNFe[0].GERAR_DANFE == 1:
+                # NUMERO_NF/SERIE_NF (a Nota Fiscal "cheia", separada da
+                # NFC-e) existem na tabela real mas não em mapEmpresa —
+                # buscadas à parte.
+                nfCheia = self._empresas.numero_e_serie_nf(dadosEmpresa.ID_EMPRESA)
                 if semNumero:
-                    nNF = dadosEmpresa.NUMERO_NF + 1
+                    nNF = nfCheia["NUMERO_NF"] + 1
                 else:
-                    nNF = dadosEmpresa.NUMERO_NF
+                    nNF = nfCheia["NUMERO_NF"]
             else:
                 if semNumero:
                     nNF = dadosEmpresa.NUMERO_NFCE + 1
@@ -2443,19 +1599,10 @@ class pedido:
 
         _nf.append(dadosEmpresa.SERIE_NFCE)
 
-        if pedidoNFe[0].GERAR_DANFE == 1:
-            if dadosEmpresa.NUMERO_NF < int(_nf[0]):
-                dadosEmpresa.NUMERO_NF = int(_nf[0])
-        else:
-            if dadosEmpresa.NUMERO_NFCE < int(_nf[0]):
-                dadosEmpresa.NUMERO_NFCE = int(_nf[0])
-
         items = sorted(itemsPedido, key=lambda e: e.NUMERO_ITEM)
 
         for item in items:
-            produto = (
-                ctx.session.query(pr).filter(pr.ID_PRODUTO == item.ID_PRODUTO).first()
-            )
+            produto = self._produtos.buscar_resumo_por_id(item.ID_PRODUTO)
 
             descricaoProduto = self.qBase.cleanSpecialChars(produto.DESCRICAO_PRODUTO)
 
@@ -2498,23 +1645,15 @@ class pedido:
             serieNF = _nf[1]
             serialProtocolo = dadosEmpresa.SERIAL_PROTOCOLO
 
-            _tr = (
-                ctx.session.query(t)
-                .filter(t.ID_TRANSPORTE == pedido.ID_TRANSPORTE)
-                .first()
-            )
+            _tr = self._transportes.buscar_por_id(pedido.ID_TRANSPORTE)
 
             if _tr is None:
-                _tr = ctx.session.query(t).first()
+                _tr = self._transportes.buscar_primeiro()
 
             uf1 = dadosEmpresa.UF.upper()
             mun1 = dadosEmpresa.CIDADE.upper()
 
-            qIbge = (
-                ctx.session.query(m)
-                .filter(*(m.SIGLA_UF == uf1, m.NOME_MUNICIPIO == mun1))
-                .all()
-            )
+            qIbge = self._municipios.buscar_por_uf_e_nome(uf1, mun1)
 
             ibgeEmitente = qIbge[0]
             ibgeDestinatario = ibgeEmitente
@@ -2524,11 +1663,10 @@ class pedido:
             if len(_NOME_CLIENTE.strip()) < 6:
                 _NOME_CLIENTE = _NOME_CLIENTE.rjust(6, "0")
 
-            _produto = (
-                ctx.session.query(pr).filter(pr.ID_PRODUTO == item.ID_PRODUTO).first()
-            )
-
-            _CODIGO_PRODUTO = await self.buscaCodigoProduto(_produto.ID_PRODUTO)
+            # Simplificação: o código anterior buscava o mesmo produto duas
+            # vezes seguidas (`produto` e `_produto`, mesma consulta) só pra
+            # pegar o ID_PRODUTO de volta — já temos em `item.ID_PRODUTO`.
+            _CODIGO_PRODUTO = await self.buscaCodigoProduto(item.ID_PRODUTO)
 
             _CODIGO_IBGE_EMITENTE = dadosEmpresa.CODIGO_MUNICIPIO_IBGE
 
@@ -2541,15 +1679,9 @@ class pedido:
 
             CPF = pedido.CPF
 
-            Tributo = (
-                ctx.session.query(tr).filter(tr.ID_TRIBUTO == item.ID_TRIBUTO).first()
-            )
+            Tributo = self._tributos.buscar_por_id(item.ID_TRIBUTO)
 
-            qCFOP = (
-                ctx.session.query(ctx.mapCFOP)
-                .filter(ctx.mapCFOP.CFOP == Tributo.CFOP)
-                .all()
-            )
+            qCFOP = self._cfops.buscar_por_codigo(Tributo.CFOP)
 
             NATUREZA_OPERACAO = (
                 qCFOP[0].DESCRICAO_CFOP if len(qCFOP) > 0 else "VENDA DE MERCADORIA"
@@ -2669,20 +1801,10 @@ class pedido:
         return retorno
 
     async def getNumeroNFCe(self, SERIE_NF: str) -> int:
-        nnf = ctx.mapNUMERO_NOTA
-
-        query = ctx.session.query(nnf).filter(
-            nnf.SERIE_NF == SERIE_NF
-        ).all()
+        query = self._numerosNota.buscar_por_serie(SERIE_NF)
 
         if not any(query):
-            cmd = ctx.tb_numero_nota.insert().values(
-                NUMERO_NF = 0,
-                SERIE_NF = SERIE_NF
-            )
-
-            ctx.session.execute(cmd)
-            ctx.session.commit()
+            self._numerosNota.inserir(SERIE_NF)
 
             return 1
 
@@ -2691,50 +1813,23 @@ class pedido:
         return retorno
 
     async def getNFCe(self, filtro: filtroNFCe) -> List[dadosNFCe]:
-        p = ctx.mapPedido
-        ip = ctx.mapItemPedido
-        pg = ctx.mapPedidoPagamento
-        e = ctx.mapEmpresa
-        c = ctx.mapCliente
-        en = ctx.mapEnderecoCliente
-        pr = ctx.mapProduto
-        t = ctx.mapTransporte
-        m = ctx.mapMunicipio
-        tr = ctx.mapTributo
-        pnf = ctx.mapPedidoNFe
-
         retorno = []
 
-        pedido = (
-            ctx.session.query(p).filter(p.NUMERO_PEDIDO == filtro.NUMERO_PEDIDO).first()
-        )
+        pedido = self._pedidos.buscar_por_numero(filtro.NUMERO_PEDIDO)
 
-        itemsPedido = (
-            ctx.session.query(ip).filter(ip.NUMERO_PEDIDO == filtro.NUMERO_PEDIDO).all()
-        )
+        itemsPedido = self._itensPedido.listar_por_pedido(filtro.NUMERO_PEDIDO)
 
-        pedidoNFe = ctx.session.query(
-            pnf.XML_NOTA,
-            pnf.CHAVE_ACESSO_NF,
-            pnf.PROTOCOLO_AUTORIZACAO
-        ).filter(*
-            [
-                pnf.NUMERO_PEDIDO == filtro.NUMERO_PEDIDO,
-                pnf.PROCESSADO == 10
-            ]
-        ).all()
+        pedidoNFe = self._pedidoNFe.listar_dados_autorizados(filtro.NUMERO_PEDIDO)
 
-        dadosEmpresa = ctx.session.query(e).first()
+        dadosEmpresa = self._empresas.buscar_padrao()
 
         ID_CLIENTE = pedido.ID_CLIENTE
         ID_ENDERECO = pedido.ID_ENDERECO
         ID_EMITENTE = dadosEmpresa.ID_EMPRESA
 
-        dadosCliente = ctx.session.query(c).filter(c.ID_CLIENTE == ID_CLIENTE).first()
+        dadosCliente = self._clientes.buscar_por_id(ID_CLIENTE)
 
-        dadosEndereco = (
-            ctx.session.query(en).filter(en.ID_ENDERECO == ID_ENDERECO).first()
-        )
+        dadosEndereco = self._enderecos.buscar_por_id(ID_ENDERECO)
 
         if dadosEndereco.ENDERECO is None or len(dadosEndereco.ENDERECO.strip()) == 0:
             dadosEndereco.ENDERECO = dadosEmpresa.ENDERECO
@@ -2759,9 +1854,7 @@ class pedido:
             FORMAS_PAGTO_IMPRESSAO(
                 DESCRICAO=item.FORMA_PAGTO, VALOR=self.qBase.currency(item.VALOR_PAGO)
             )
-            for item in ctx.session.query(pg)
-            .filter(pg.NUMERO_PEDIDO == filtro.NUMERO_PEDIDO)
-            .all()
+            for item in self._pagamentos.listar_por_pedido(filtro.NUMERO_PEDIDO)
         ]
 
         TOTAL_QTDE = sum([int(item.QTDE) for item in itemsPedido])
@@ -2779,9 +1872,7 @@ class pedido:
         items = sorted(itemsPedido, key=lambda e: e.NUMERO_ITEM)
 
         for item in items:
-            produto = (
-                ctx.session.query(pr).filter(pr.ID_PRODUTO == item.ID_PRODUTO).first()
-            )
+            produto = self._produtos.buscar_resumo_por_id(item.ID_PRODUTO)
 
             descricaoProduto = self.qBase.cleanSpecialChars(produto.DESCRICAO_PRODUTO)
 
@@ -2817,23 +1908,15 @@ class pedido:
             cnpjEmitente = self.qBase.onlyNumbers(dadosEmpresa.CNPJ)
             serialProtocolo = dadosEmpresa.SERIAL_PROTOCOLO
 
-            _tr = (
-                ctx.session.query(t)
-                .filter(t.ID_TRANSPORTE == pedido.ID_TRANSPORTE)
-                .first()
-            )
+            _tr = self._transportes.buscar_por_id(pedido.ID_TRANSPORTE)
 
             if _tr is None:
-                _tr = ctx.session.query(t).first()
+                _tr = self._transportes.buscar_primeiro()
 
             uf1 = dadosEmpresa.UF.upper()
             mun1 = dadosEmpresa.CIDADE.upper()
 
-            qIbge = (
-                ctx.session.query(m)
-                .filter(*(m.SIGLA_UF == uf1, m.NOME_MUNICIPIO == mun1))
-                .all()
-            )
+            qIbge = self._municipios.buscar_por_uf_e_nome(uf1, mun1)
 
             ibgeEmitente = qIbge[0]
             ibgeDestinatario = ibgeEmitente
@@ -2843,11 +1926,7 @@ class pedido:
             if len(_NOME_CLIENTE.strip()) < 6:
                 _NOME_CLIENTE = _NOME_CLIENTE.rjust(6, "0")
 
-            _produto = (
-                ctx.session.query(pr).filter(pr.ID_PRODUTO == item.ID_PRODUTO).first()
-            )
-
-            _CODIGO_PRODUTO = await self.buscaCodigoProduto(_produto.ID_PRODUTO)
+            _CODIGO_PRODUTO = await self.buscaCodigoProduto(item.ID_PRODUTO)
 
             _CODIGO_IBGE_EMITENTE = dadosEmpresa.CODIGO_MUNICIPIO_IBGE
 
@@ -2860,15 +1939,9 @@ class pedido:
 
             CPF = pedido.CPF
 
-            Tributo = (
-                ctx.session.query(tr).filter(tr.ID_TRIBUTO == item.ID_TRIBUTO).first()
-            )
+            Tributo = self._tributos.buscar_por_id(item.ID_TRIBUTO)
 
-            qCFOP = (
-                ctx.session.query(ctx.mapCFOP)
-                .filter(ctx.mapCFOP.CFOP == Tributo.CFOP)
-                .all()
-            )
+            qCFOP = self._cfops.buscar_por_codigo(Tributo.CFOP)
 
             NATUREZA_OPERACAO = (
                 qCFOP[0].DESCRICAO_CFOP if len(qCFOP) > 0 else "VENDA DE MERCADORIA"
@@ -3001,27 +2074,15 @@ class pedido:
     async def buscaCodigoProduto(self, ID_PRODUTO: int) -> str:
         retorno = "SEM GTIN"
 
-        p = ctx.mapProduto
+        codigoPdv = self._produtos.codigo_pdv_por_id(ID_PRODUTO)
 
-        produto = ctx.session.query(p).filter(p.ID_PRODUTO == ID_PRODUTO).first()
-
-        if produto.CODIGO_PRODUTO_PDV is not None:
-            retorno = (
-                produto.CODIGO_PRODUTO_PDV
-                if len(produto.CODIGO_PRODUTO_PDV) >= 8
-                else "SEM GTIN"
-            )
+        if codigoPdv is not None:
+            retorno = codigoPdv if len(codigoPdv) >= 8 else "SEM GTIN"
 
         return retorno.strip()
 
     async def finalizaNFCe(self, dados: NFe_Finalizada):
-        pnf = ctx.mapPedidoNFe
-
-        q = (
-            ctx.session.query(pnf)
-            .filter(pnf.NUMERO_PEDIDO == dados.NUMERO_PEDIDO)
-            .all()
-        )
+        q = self._pedidoNFe.listar_por_pedido(dados.NUMERO_PEDIDO)
 
         if len(q) == 0:
             return
@@ -3031,26 +2092,18 @@ class pedido:
         if autorizada == 0:
             return
 
-        cmd = (
-            ctx.tb_pedido_nfe.update()
-            .values(
-                XML_NOTA=dados.XML,
-                NUMERO_NF=dados.NUMERO_NF,
-                CHAVE_ACESSO_NF=dados.CHAVE_ACESSO,
-                ASSINATURA_NFCE=dados.ASSINATURA_NFC,
-                DATA_AUTORIZACAO_NFCE=dados.DATA_AUTORIZACAO,
-                PROCESSADO=autorizada,
-            )
-            .where(pnf.NUMERO_PEDIDO == dados.NUMERO_PEDIDO and pnf.PROCESSADO == 1)
+        self._pedidoNFe.atualizar_finalizacao(
+            dados.NUMERO_PEDIDO,
+            dados.XML,
+            dados.NUMERO_NF,
+            dados.CHAVE_ACESSO,
+            dados.ASSINATURA_NFC,
+            dados.DATA_AUTORIZACAO,
+            autorizada,
         )
 
-        ctx.session.execute(cmd)
-        ctx.session.commit()
-
     async def listTributo(self) -> List[listaDeTributo]:
-        tr = ctx.mapTributo
-
-        query = ctx.session.query(tr).all()
+        query = self._tributos.listar()
 
         lista = [
             listaDeTributo(
@@ -3064,10 +2117,109 @@ class pedido:
 
         return retorno
 
-    async def listItensParaNFe(self, filtro: filtroNumeroPedido) -> List[itemsNFe]:
-        tr = ctx.mapItemPedido
+    async def listTributoCompleto(self) -> List[tributoCompleto]:
+        # Tabela de tributos inteira (NCM/CFOP/CST/alíquotas), sem filtro por
+        # pedido — usada pro frontend cachear localmente e montar a NFC-e
+        # sem depender de um pedido já salvo (Zeus/nfceZeus.py).
+        query = self._tributos.listar()
 
-        query = ctx.session.query(tr).filter(tr.NUMERO_PEDIDO == filtro.NUMERO_PEDIDO).all()
+        return [
+            tributoCompleto(
+                ID_TRIBUTO=item.ID_TRIBUTO,
+                NCM=item.NCM or '',
+                CFOP=item.CFOP or '',
+                CST=item.CST or '',
+                ALIQ_ICMS=float(item.ALIQ_ICMS) if item.ALIQ_ICMS is not None else 0.0,
+                CST_PIS=item.CST_PIS or '',
+                ALIQ_PIS=float(item.ALIQ_PIS) if item.ALIQ_PIS is not None else 0.0,
+                CST_COFINS=item.CST_COFINS or '',
+                ALIQ_COFINS=float(item.ALIQ_COFINS) if item.ALIQ_COFINS is not None else 0.0,
+                CEST=item.CEST or '',
+                NOME_OPERACAO=item.NOME_OPERACAO or ''
+            )
+            for item in query
+        ]
+
+    async def listPedidosParaFaturar(self, filtro: filtroFaturamentoAutomatico) -> List[pedidoParaFaturar]:
+        # Usado pelo bot em botFaturamento/ (processo separado do app
+        # principal) — devolve só os pedidos que devem ser faturados
+        # AGORA, já aplicando: STATUS_PEDIDO=3, dentro do mês corrente,
+        # ainda sem NFC-e autorizada, filtro de forma de pagamento/origem,
+        # e o teto proporcional ao dia do mês (VALOR_MAXIMO_MENSAL /
+        # dias do mês * dia atual, menos o que já foi faturado no mês).
+        # Mais antigos primeiro; para no primeiro que não couber no
+        # orçamento restante (os que sobrarem voltam no próximo ciclo).
+        import calendar
+
+        agora = datetime.now()
+        primeiroDiaMes = agora.replace(hour=0, minute=0, second=0, microsecond=0).replace(day=1)
+        diasNoMes = calendar.monthrange(agora.year, agora.month)[1]
+
+        candidatos = self._pedidos.listar_candidatos_faturamento(
+            primeiroDiaMes, filtro.ORIGEM if filtro.ORIGEM else None
+        )
+
+        if filtro.FORMAS_PAGTO:
+            permitidas = set(filtro.FORMAS_PAGTO)
+            filtrados = []
+
+            for pedidoItem in candidatos:
+                formasDoPedido = {
+                    item.FORMA_PAGTO
+                    for item in self._pagamentos.listar_por_pedido(pedidoItem.NUMERO_PEDIDO)
+                }
+
+                # Só entra se TODAS as formas de pagamento desse pedido
+                # estiverem na lista permitida (pedido misto com uma forma
+                # não-permitida fica de fora).
+                if formasDoPedido and formasDoPedido.issubset(permitidas):
+                    filtrados.append(pedidoItem)
+
+            candidatos = filtrados
+
+        totalJaFaturado = float(self._pedidos.somar_faturado_no_mes(primeiroDiaMes) or 0)
+
+        valorDiario = filtro.VALOR_MAXIMO_MENSAL / diasNoMes
+        tetoAcumulado = valorDiario * agora.day
+        orcamentoDisponivel = max(0.0, tetoAcumulado - totalJaFaturado)
+
+        retorno = []
+        acumulado = 0.0
+
+        for pedidoItem in candidatos:
+            total = float(pedidoItem.TOTAL_PEDIDO or 0)
+
+            if acumulado + total > orcamentoDisponivel:
+                break
+
+            acumulado += total
+
+            retorno.append(pedidoParaFaturar(
+                NUMERO_PEDIDO=pedidoItem.NUMERO_PEDIDO,
+                DATA_HORA=pedidoItem.DATA_HORA.strftime('%d/%m/%Y %H:%M'),
+                TOTAL_PEDIDO=total,
+            ))
+
+        return retorno
+
+    async def buscaIbgeMunicipio(self, filtro: filtroMunicipio) -> str:
+        # Usado pelo Zeus/nfceZeus.py (emissão de NF-e modelo 55) pra
+        # resolver o código IBGE do MUNICÍPIO do destinatário — mesma
+        # consulta que getNFCe já faz pro emitente, só que devolvendo
+        # vazio (não IndexError) quando não encontra, porque aqui é
+        # esperado que às vezes não encontre (tb_municipio não é a tabela
+        # cheia do IBGE, só o que já foi usado/cadastrado).
+        query = self._municipios.buscar_primeiro_por_uf_e_nome(
+            filtro.UF.strip().upper(), filtro.MUNICIPIO.strip().upper()
+        )
+
+        if query is None:
+            return ""
+
+        return f"{int(query.ID_UF)}{str(int(query.ID_MUNICIPIO)).rjust(5, '0')}"
+
+    async def listItensParaNFe(self, filtro: filtroNumeroPedido) -> List[itemsNFe]:
+        query = self._itensPedido.listar_por_pedido(filtro.NUMERO_PEDIDO)
 
         lista = [
             itemsNFe(
@@ -3083,47 +2235,14 @@ class pedido:
 
         return lista
 
-    async def setTributoItemPedido(self, item: itemTributo): 
-        cmd = ctx.tb_item_pedido.update().values(
-            ID_TRIBUTO = item.ID_TRIBUTO
-        ).where(
-            ctx.mapItemPedido.NUMERO_ITEM == item.NUMERO_ITEM 
-        )
-
-        ctx.session.execute(cmd)
-        ctx.session.commit()
+    async def setTributoItemPedido(self, item: itemTributo):
+        self._itensPedido.atualizar_tributo(item.NUMERO_ITEM, item.ID_TRIBUTO)
 
     async def conferePagamento(self, record: listaDePagamentos):
-        cmd = ctx.tb_pedido_pagamento.update().values(
-            VALOR_PAGO_STONE = record.TOTAL_PAGO
-        ).where(
-            ctx.mapPedidoPagamento.ID_PAGAMENTO == record.ID_PAGAMENTO
-        )
+        self._pagamentos.atualizar_valor_pago_stone(record.ID_PAGAMENTO, record.TOTAL_PAGO)
 
-        ctx.session.execute(cmd)
-        ctx.session.commit()
-
-    def getClientePedido(self, idCliente: int, idEndereco: int) -> clientePedido:
-
-        c = ctx.mapCliente
-        e = ctx.mapEnderecoCliente
-
-        cliente = ctx.session.query(
-            c.CPF,
-            c.NOME_CLIENTE,
-            e.ENDERECO,
-            e.NUMERO_ENDERECO,
-            e.COMPLEMENTO_ENDERECO,
-            e.BAIRRO,
-            c.TELEFONE_CLIENTE,
-            e.MUNICIPIO,
-            e.UF,
-            c.EMAIL_CLIENTE
-        ).filter(*[
-            e.ID_CLIENTE == idCliente,
-            e.ID_ENDERECO == idEndereco,
-            c.ID_CLIENTE == e.ID_CLIENTE
-        ]).first()
+    def getClientePedido(self, idCliente: int, idEndereco: int, conn=None) -> clientePedido:
+        cliente = self._clientes.buscar_dados_pedido(idCliente, idEndereco, conn=conn)
 
         retorno = clientePedido(
             CPF = cliente.CPF,
@@ -3141,17 +2260,7 @@ class pedido:
         return retorno
 
     async def getDadosEmitente(self) -> dadosEmitente:
-        e = ctx.mapEmpresa
-
-        query = ctx.session.query(
-            e.RAZAO_SOCIAL,
-            e.NOME_FANTASIA,
-            e.ENDERECO,
-            e.BAIRRO,
-            e.CIDADE,
-            e.UF,
-            e.TELEFONE
-        ).first()
+        query = self._empresas.buscar_padrao()
 
         retorno = dadosEmitente(
             RAZAO_SOCIAL=query.RAZAO_SOCIAL,
@@ -3168,75 +2277,39 @@ class pedido:
         return retorno
 
     async def finalizaNFCe_V2(self, nota: notaAutorizada):
-        cmd = ctx.tb_pedido_nfe.insert().values(
-            ID_PEDIDO_NFE=0,
-            NUMERO_PEDIDO=nota.NUMERO_PEDIDO,
-            XML_NOTA=nota.XML_AUTORIZADO,
-            RESPOSTA_SEFAZ="",
-            NUMERO_NF=nota.NUMERO_NF,
-            SERIE_NF=nota.SERIE_NF,
-            CHAVE_ACESSO_NF=nota.CHAVE_ACESSO,
-            PROTOCOLO_AUTORIZACAO=nota.PROTOCOLO_AUTORIZACAO,
-            PROCESSADO=10,
-            ASSINATURA_NFCE="",
-            DATA_AUTORIZACAO_NFCE="",
-            CHAVE_PEDIDO="",
-            XML_DEVOLUCAO="",
-            NUMERO_NF_DEVOLUCAO=0,
-            GERAR_DANFE=0,
-            ID_EMPRESA=1,
-            CHAVE_NF_DEVOLUCAO="",
-            ID_PEDIDO_NFE_LOCAL=0,
-            ID_TERMINAL=0
-        )
-        ctx.session.execute(cmd)
+        with db.transaction() as conn:
+            self._pedidoNFe.inserir(
+                numero_pedido=nota.NUMERO_PEDIDO,
+                numero_nf=nota.NUMERO_NF,
+                serie_nf=nota.SERIE_NF,
+                processado=10,
+                chave_acesso_nf=nota.CHAVE_ACESSO,
+                protocolo_autorizacao=nota.PROTOCOLO_AUTORIZACAO,
+                xml_nota=nota.XML_AUTORIZADO,
+                conn=conn,
+            )
 
-        cmd1 = ctx.tb_numero_nota.update().values(
-            NUMERO_NF = nota.NUMERO_NF
-        ).where(
-            ctx.mapNUMERO_NOTA.SERIE_NF == nota.SERIE_NF
-        )
-
-        ctx.session.execute(cmd1)
-        ctx.session.commit()
+            self._numerosNota.atualizar_numero(nota.SERIE_NF, nota.NUMERO_NF, conn=conn)
 
     async def getEnderecoDoPedido(self, filtro: filtroNumeroPedido) -> str:
-        p = ctx.mapPedido
-        e = ctx.mapEnderecoCliente
+        pedido = self._pedidos.buscar_por_numero(filtro.NUMERO_PEDIDO)
 
-        query1 = ctx.session.query(
-            p.NUMERO_PEDIDO,
-            p.ID_CLIENTE,
-            p.ID_ENDERECO
-        ).filter(
-            p.NUMERO_PEDIDO == filtro.NUMERO_PEDIDO
-        ).all()
+        if pedido is None:
+            return ''
 
-        idEndereco = query1[0].ID_ENDERECO
-
-        query2 = ctx.session.query(
-            e.ENDERECO, 
-            e.NUMERO_ENDERECO,
-            e.COMPLEMENTO_ENDERECO,
-            e.BAIRRO,
-            e.CEP,
-            e.MUNICIPIO,
-            e.UF
-        ).filter(*[
-            e.ID_ENDERECO == idEndereco
-        ]).all()
+        endereco = self._enderecos.buscar_por_id(pedido.ID_ENDERECO)
 
         retorno = ''
 
-        if any(query2):
+        if endereco is not None:
             retorno = ''.join((
-                query2[0].ENDERECO, ', \n',
-                query2[0].NUMERO_ENDERECO, ' - ',
-                query2[0].COMPLEMENTO_ENDERECO, '\n',
-                query2[0].BAIRRO, '\n',
-                query2[0].CEP, '\n',
-                query2[0].MUNICIPIO, ' - ',
-                query2[0].UF
+                endereco.ENDERECO, ', \n',
+                endereco.NUMERO_ENDERECO, ' - ',
+                endereco.COMPLEMENTO_ENDERECO, '\n',
+                endereco.BAIRRO, '\n',
+                endereco.CEP, '\n',
+                endereco.MUNICIPIO, ' - ',
+                endereco.UF
             ))
 
         return retorno
@@ -3255,48 +2328,20 @@ class pedido:
         return ''
 
     def buscaSaldoProduto(self, filtro: filtroProduto) -> float:
-        e = ctx.mapEstoque
+        entradas = self._estoque.soma_qtde(filtro.ID_PRODUTO, 0)
+        saidas = self._estoque.soma_qtde(filtro.ID_PRODUTO, 1)
 
-        filters = [e.ID_PRODUTO == filtro.ID_PRODUTO, e.MOVIMENTO == 0]
-
-        entradas = (
-            ctx.session.query(func.sum(e.QTDE_ESTOQUE).label("ENTRADAS"))
-            .filter(*filters)
-            .first()
-        )
-
-        filters = [e.ID_PRODUTO == filtro.ID_PRODUTO, e.MOVIMENTO == 1]
-
-        saidas = (
-            ctx.session.query(func.sum(e.QTDE_ESTOQUE).label("SAIDAS"))
-            .filter(*filters)
-            .first()
-        )
-
-        e = entradas[0]
-        s = saidas[0]
-
-        if e is None:
-            e = 0
-
-        if s is None:
-            s = 0
+        e = 0 if entradas is None else entradas
+        s = 0 if saidas is None else saidas
 
         saldo = float(e) - float(s)
 
         return saldo
 
     def getDescricaoProdutos(self, items: List[produtoIDQtde]) -> List[comboProduto]:
-        pr = ctx.mapProduto
-
         ids = [item.ID_PRODUTO for item in items]
 
-        query = ctx.session.query(
-            pr.ID_PRODUTO,
-            pr.DESCRICAO_PRODUTO
-        ).filter(
-            pr.ID_PRODUTO.in_(ids)    
-        ).all()
+        query = self._produtos.listar_descricoes_por_ids(ids)
 
         retorno = [
             comboProduto(
@@ -3329,8 +2374,6 @@ class pedido:
         return ', '.join(retorno)
 
     def gravaDados_PagamentoAutorizado(self, dados: pagamentoAutorizado):
-        pg = ctx.mapPedidoPagamento
-
         dtAutorizacao = datetime.today()
 
         try:
@@ -3338,16 +2381,11 @@ class pedido:
         except:
             pass
 
-        cmd = ctx.tb_pedido_pagamento.update().values(
-            VALOR_PAGO_STONE=dados.VALOR_PAGO,
-            CODIGO_NSU=dados.NSU,
-            DATA_AUTORIZACAO=dtAutorizacao,
-            BANDEIRA=dados.BANDEIRA,
-            ID_TERMINAL=dados.ID_TERMINAL
-        ).where(pg.NUMERO_PEDIDO == dados.NUMERO_PEDIDO)
-
-        ctx.session.execute(cmd)
-        ctx.session.commit()
-
-    def __del__(self):
-        ctx.session.close_all()
+        self._pagamentos.atualizar_autorizacao(
+            dados.NUMERO_PEDIDO,
+            dados.VALOR_PAGO,
+            dados.NSU,
+            dtAutorizacao,
+            dados.BANDEIRA,
+            dados.ID_TERMINAL,
+        )
