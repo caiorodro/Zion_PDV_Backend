@@ -181,6 +181,9 @@ class qBase:
             return 0.000
 
     def cleanSpecialChars(self, str1):
+        if str1 is None:
+            return ""
+
         retorno = str1
 
         retorno = retorno.replace("´", "")

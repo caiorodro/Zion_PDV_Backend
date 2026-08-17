@@ -6,7 +6,13 @@ import qrcode
 
 from base.qBase import qBase
 
-import base.qModel as ctx
+from base.mapTable import mapEmpresa, mapItemPedido, mapPedido
+from infra.repositories.empresaRepository import EmpresaRepository
+from infra.repositories.itemPedidoRepository import ItemPedidoRepository
+from infra.repositories.pedidoNFeRepository import PedidoNFeRepository
+from infra.repositories.pedidoPagamentoRepository import PedidoPagamentoRepository
+from infra.repositories.pedidoRepository import PedidoRepository
+from infra.repositories.produtoRepository import ProdutoRepository
 from models.filtroPedido import filtroPedido
 
 from cfg.config import Config
@@ -16,34 +22,25 @@ class cupomFiscal:
         self.qBase = qBase()
         self.totalTributos = 0.00
         self.config = Config()
+        self._empresas = EmpresaRepository()
+        self._pedidos = PedidoRepository()
+        self._itens = ItemPedidoRepository()
+        self._pagamentos = PedidoPagamentoRepository()
+        self._nfes = PedidoNFeRepository()
+        self._produtos = ProdutoRepository()
 
     async def getPDF(self, filtro: filtroPedido) -> str:
-        p = ctx.mapPedido
-        ip = ctx.mapItemPedido
-        pg = ctx.mapPedidoPagamento
-        nf = ctx.mapPedidoNFe
-        e = ctx.mapEmpresa
-
-        empresa = ctx.session.query(e).first()
+        empresa = self._empresas.buscar_padrao()
 
         numeroPedido = int(filtro.FILTRO)
 
-        pedido = ctx.session.query(p).filter(
-            p.NUMERO_PEDIDO == numeroPedido
-            ).first()
-        
-        items = ctx.session.query(ip).filter(
-            ip.NUMERO_PEDIDO == numeroPedido
-            ).all()
-        
-        pagamentos = ctx.session.query(pg).filter(
-            pg.NUMERO_PEDIDO == numeroPedido
-            ).all()
-        
-        nfce = ctx.session.query(nf).filter(*(
-            nf.NUMERO_PEDIDO == numeroPedido,
-            nf.PROCESSADO == 10
-            )).all()
+        pedido = self._pedidos.buscar_por_numero(numeroPedido)
+
+        items = self._itens.listar_por_pedido(numeroPedido)
+
+        pagamentos = self._pagamentos.listar_por_pedido(numeroPedido)
+
+        nfce = self._nfes.listar_processadas(numeroPedido, 10)
 
         if len(nfce) == 0:
             raise Exception('nota fiscal não encontrada para esse pedido')
@@ -181,7 +178,7 @@ class cupomFiscal:
 
         return retorno
     
-    async def _getContentPedido(self, pedido: ctx.mapPedido, empresa: ctx.mapEmpresa) -> List:
+    async def _getContentPedido(self, pedido: mapPedido, empresa: mapEmpresa) -> List:
         
         linhas = [
             "<tr>",
@@ -236,7 +233,7 @@ class cupomFiscal:
 
         return linhas
 
-    async def _getContentItemPedido(self, items: List[ctx.mapItemPedido]) -> List:
+    async def _getContentItemPedido(self, items: List[mapItemPedido]) -> List:
         linhas = [
             "<tr>",
             "<td colspan=3>",
@@ -318,13 +315,7 @@ class cupomFiscal:
         return linhas
 
     async def _getDescricaoitem(self, ID_PRODUTO: int) -> str:
-        p = ctx.mapProduto
-
-        descricao = ctx.session.query(p).filter(
-            p.ID_PRODUTO == ID_PRODUTO
-        ).first().DESCRICAO_PRODUTO
-
-        return descricao
+        return self._produtos.descricao_por_id(ID_PRODUTO)
 
     def trataChave(self, chave: str) -> str:
         retorno = ''

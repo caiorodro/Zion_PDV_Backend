@@ -1,6 +1,5 @@
-from sqlalchemy import text
+from infra import db
 
-import base.qModel as ctx
 
 class checkTables:
     def __init__(self):
@@ -15,7 +14,7 @@ class checkTables:
             PRIMARY KEY (ID_NUMERO)
         );'''
 
-        ctx.session.execute(text(sql))
+        db.execute(sql)
 
         try:
             tributo = [
@@ -24,13 +23,10 @@ class checkTables:
                 'alter table tb_tributo add ISERV numeric(10,2);'
             ]
 
-            [ctx.session.execute(item) for item in tributo]
+            [db.execute(item) for item in tributo]
 
-        except:
+        except Exception:
             pass
 
         codigoIFood = 'alter table tb_produto modify column CODIGO_IFOOD VARCHAR(50) null;'
-        ctx.session.execute(codigoIFood)
-
-    def __del__(self):
-        ctx.session.close_all()
+        db.execute(codigoIFood)

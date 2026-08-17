@@ -98,8 +98,10 @@ class mapPedido:
         self.ID_TERMINAL = ID_TERMINAL
 
 class mapItemPedido:
+    # VALOR_PAGO_STONE não existe em tb_item_pedido (nem na definição SQLAlchemy,
+    # nem na tabela real) — pertence a tb_pedido_pagamento/mapPedidoPagamento.
     def __init__(self, NUMERO_ITEM, NUMERO_PEDIDO, ID_PRODUTO, CODIGO_PRODUTO, QTDE, PRECO_UNITARIO, VALOR_TOTAL, ID_TRIBUTO,
-                 OBS_ITEM, ID_ITEM_LOCAL, ID_TERMINAL, VALOR_PAGO_STONE) -> None:
+                 OBS_ITEM, ID_ITEM_LOCAL, ID_TERMINAL) -> None:
         self.NUMERO_ITEM = NUMERO_ITEM
         self.NUMERO_PEDIDO = NUMERO_PEDIDO
         self.ID_PRODUTO = ID_PRODUTO
@@ -111,7 +113,6 @@ class mapItemPedido:
         self.OBS_ITEM = OBS_ITEM
         self.ID_ITEM_LOCAL = ID_ITEM_LOCAL
         self.ID_TERMINAL = ID_TERMINAL
-        self.VALOR_PAGO_STONE = VALOR_PAGO_STONE
 
 class mapPedidoPagamento:
     def __init__(self, ID_PAGAMENTO, NUMERO_PEDIDO, DATA_HORA, FORMA_PAGTO, VALOR_PAGO, ID_CAIXA, ORIGEM, ID_PAGAMENTO_LOCAL,
@@ -189,9 +190,9 @@ class mapFinanceiro:
 class mapFormaPagto:
     def __init__(self, ID_FORMA, DESCRICAO_FORMA, PAGTO_FUTURO, VALE_FUNCIONARIO, VALOR_DIA, TAXA_PAGAMENTO, 
             DIAS_PAGAMENTO) -> None:
-        self.ID_FORMA = ID_FORMA 
-        self.DESCRICAO_FORMA = DESCRICAO_FORMA, 
-        self.PAGTO_FUTURO = PAGTO_FUTURO 
+        self.ID_FORMA = ID_FORMA
+        self.DESCRICAO_FORMA = DESCRICAO_FORMA
+        self.PAGTO_FUTURO = PAGTO_FUTURO
         self.VALE_FUNCIONARIO = VALE_FUNCIONARIO 
         self.VALOR_DIA = VALOR_DIA
         self.TAXA_PAGAMENTO = TAXA_PAGAMENTO
@@ -239,7 +240,7 @@ class mapAberturaCaixa:
         self.VALOR_ABERTURA = VALOR_ABERTURA
         self.VALOR_FECHAMENTO = VALOR_FECHAMENTO
         self.ID_USUARIO = ID_USUARIO
-        self.DATA_FECHAMENTO = DATA_FECHAMENTO,
+        self.DATA_FECHAMENTO = DATA_FECHAMENTO
         self.IMPRESSAO = IMPRESSAO
 
 class mapFechamentoCaixa:
@@ -386,9 +387,10 @@ class mapSangria:
         self.ID_ABERTURA = ID_ABERTURA
 
 class mapReforco:
-    def __init__(self, ID_REFORCO, DATA_REFORCO, ID_USUARIO, VALOR_REFORCO, ID_REFORCO_LOCAL, ID_TERMINAL, ID_ABERTURA):
+    def __init__(self, ID_REFORCO, DATA_REFORCO, DESCRICAO_REFORCO, ID_USUARIO, VALOR_REFORCO, ID_REFORCO_LOCAL, ID_TERMINAL, ID_ABERTURA):
         self.ID_REFORCO  = ID_REFORCO
-        self.DATA_REFORCO = DATA_REFORCO 
+        self.DATA_REFORCO = DATA_REFORCO
+        self.DESCRICAO_REFORCO = DESCRICAO_REFORCO
         self.ID_USUARIO = ID_USUARIO
         self.VALOR_REFORCO = VALOR_REFORCO
         self.ID_REFORCO_LOCAL = ID_REFORCO_LOCAL

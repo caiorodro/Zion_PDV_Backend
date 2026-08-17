@@ -31,6 +31,8 @@ from models.filtroImpressaoCaixa import filtroImpressaoCaixa
 from models.filtroImpressaoPedido import filtroImpressaoPedido
 from models.filtroListaPedido import filtroListaPedido
 from models.filtroListaProduto import filtroListaProduto
+from models.filtroFaturamentoAutomatico import filtroFaturamentoAutomatico
+from models.filtroMunicipio import filtroMunicipio
 from models.filtroNFCe import filtroNFCe
 from models.filtroNumeroPedido import filtroNumeroPedido
 from models.filtroProduto import filtroProduto
@@ -1018,6 +1020,54 @@ async def listTributo():
 
     try:
         retorno = await ped.listTributo()
+    except Exception as ex:
+        raise ex
+
+    finally:
+        del ped
+
+    return retorno
+
+@router.get('/listTributoCompleto')
+async def listTributoCompleto():
+    ped = pedido()
+
+    retorno = []
+
+    try:
+        retorno = await ped.listTributoCompleto()
+    except Exception as ex:
+        raise ex
+
+    finally:
+        del ped
+
+    return retorno
+
+@router.get('/listPedidosParaFaturar')
+async def listPedidosParaFaturar(filtro: filtroFaturamentoAutomatico):
+    ped = pedido()
+
+    retorno = []
+
+    try:
+        retorno = await ped.listPedidosParaFaturar(filtro)
+    except Exception as ex:
+        raise ex
+
+    finally:
+        del ped
+
+    return retorno
+
+@router.get('/buscaIbgeMunicipio')
+async def buscaIbgeMunicipio(filtro: filtroMunicipio):
+    ped = pedido()
+
+    retorno = ""
+
+    try:
+        retorno = await ped.buscaIbgeMunicipio(filtro)
     except Exception as ex:
         raise ex
 

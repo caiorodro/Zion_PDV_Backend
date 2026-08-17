@@ -4,10 +4,11 @@ import json
 import os
 from typing import List
 
-from sqlalchemy import func
-
-import base.qModel as ctx
 from base.qBase import qBase
+from infra.repositories.codigoBarrasProdutoRepository import CodigoBarrasProdutoRepository
+from infra.repositories.estoqueRepository import EstoqueRepository
+from infra.repositories.gradePrecoRepository import GradePrecoRepository
+from infra.repositories.produtoRepository import ProdutoRepository
 from models.comboProduto import comboProduto
 from models.filtroCodigoProduto import filtroCodigoProduto
 from models.filtroDescricaoProduto import filtroDescricaoProduto
@@ -30,23 +31,13 @@ class produto:
 
         self.prefs = self.qBase.getPrefs()
 
+        self._produtos = ProdutoRepository()
+        self._grades = GradePrecoRepository()
+        self._estoque = EstoqueRepository()
+        self._codigosBarras = CodigoBarrasProdutoRepository()
+
     async def list(self, NOME) -> List[listaDeProduto]:
-        select1 = ctx.session.query(ctx.mapProduto).order_by(
-            ctx.mapProduto.DESCRICAO_PRODUTO, ctx.mapProduto.PRODUTO_ATIVO
-        )
-
-        filters = [
-            ctx.mapProduto.PRECO_BALCAO > 0.00,
-            ctx.mapProduto.PRODUTO_ATIVO == 1,
-        ]
-
-        if len(NOME) > 0:
-            filters.append(ctx.mapProduto.DESCRICAO_PRODUTO.like("%{}%".format(NOME)))
-
-        select1 = select1.filter(*filters)
-
-        if len(NOME) == 0:
-            select1 = select1.limit(50)
+        select1 = self._produtos.listar_ativos(NOME)
 
         lista = [
             listaDeProduto(
@@ -57,27 +48,15 @@ class produto:
                 else 0,
                 ID_TRIBUTO=row.ID_TRIBUTO,
             ).__dict__
-            for row in select1.all()
+            for row in select1
         ]
 
         return lista
 
     async def get_Produto(self, filtro: getProduto):
-        filters = [ctx.mapProduto.ID_PRODUTO == filtro.ID_PRODUTO]
+        select1 = self._produtos.buscar_resumo_por_id(filtro.ID_PRODUTO)
 
-        table = ctx.mapProduto
-
-        select1 = (
-            ctx.session.query(
-                table.ID_PRODUTO,
-                table.DESCRICAO_PRODUTO,
-                table.PRECO_BALCAO,
-                table.PRODUTO_ATIVO,
-                table.ID_TRIBUTO,
-            )
-            .filter(*filters)
-            .all()
-        )
+        rows = [select1] if select1 is not None else []
 
         lista = [
             listaDeProduto(
@@ -88,39 +67,20 @@ class produto:
                 ),
                 ID_TRIBUTO=row.ID_TRIBUTO,
             ).__dict__
-            for row in select1
+            for row in rows
         ]
 
         return self.qBase.toRoute(lista, 200)
 
     def getPrecoAtacado(self, filtro: getProduto) -> float:
-        preco = (
-            ctx.session.query(ctx.mapProduto.ID_PRODUTO, ctx.mapProduto.PRECO_BALCAO)
-            .filter(ctx.mapProduto.ID_PRODUTO == filtro.ID_PRODUTO)
-            .all()
-        )
+        preco = self._produtos.preco_balcao_por_id(filtro.ID_PRODUTO)
 
-        if len(preco) == 0:
+        if preco is None:
             return self.qBase.toRoute("Produto não econtrado", 500)
 
-        precoBalcao = float(preco[0].PRECO_BALCAO)
+        precoBalcao = float(preco.PRECO_BALCAO)
 
-        filters = [
-            ctx.mapGradePreco.ID_PRODUTO == filtro.ID_PRODUTO,
-            ctx.mapGradePreco.QTDE_INICIAL <= filtro.QTDE,
-            ctx.mapGradePreco.QTDE_FINAL > filtro.QTDE,
-        ]
-
-        query = (
-            ctx.session.query(
-                ctx.mapGradePreco.ID_PRODUTO,
-                ctx.mapGradePreco.QTDE_INICIAL,
-                ctx.mapGradePreco.QTDE_FINAL,
-                ctx.mapGradePreco.PRECO_VENDA,
-            )
-            .filter(*filters)
-            .all()
-        )
+        query = self._grades.buscar_faixa(filtro.ID_PRODUTO, filtro.QTDE)
 
         retorno = precoBalcao
 
@@ -167,11 +127,7 @@ class produto:
             filtro.CODIGO[dadosBalanca.POSICAO_CODIGO_PRODUTO[0] : dadosBalanca.POSICAO_CODIGO_PRODUTO[1]]
             ))
 
-        p = ctx.mapProduto
-
-        items = ctx.session.query(p).filter(
-            p.CODIGO_PRODUTO == codigoBalanca
-        ).all()
+        items = self._produtos.buscar_por_codigo_produto(codigoBalanca)
 
         itemsBalanca = [
             item
@@ -202,7 +158,7 @@ class produto:
                 )
 
         return record
-    
+
     async def buscaProdutoPorCodigo(self, filtro: filtroCodigoProduto) -> List[itemPedidoCaixa]:
 
         itemCodigoBalanca = self.getItemBalanca(filtro)
@@ -249,24 +205,16 @@ class produto:
 
             return lista
 
-        p = ctx.mapProduto
         lista = []
-
-        filters = [
-            p.CODIGO_PRODUTO_PDV == filtro.CODIGO,
-            p.PRECO_BALCAO > 0.00,
-            p.PRODUTO_ATIVO == 1
-        ]
 
         filtro.CODIGO = filtro.CODIGO.strip()
 
-        row = ctx.session.query(
-            p.ID_PRODUTO, p.DESCRICAO_PRODUTO, p.PRECO_BALCAO, p.ID_TRIBUTO, p.ID_FAMILIA
-        ).filter(*filters)
+        rec = self._produtos.buscar_ativo_por_codigo_pdv(filtro.CODIGO)
 
-        if row.first():
-            rec = row.first()
+        if rec is None:
+            rec = self._produtos.buscar_ativo_por_codigo(filtro.CODIGO)
 
+        if rec is not None:
             preco = self.getPrecoAtacado(
                 getProduto(
                     ID_PRODUTO=rec.ID_PRODUTO,
@@ -289,43 +237,6 @@ class produto:
                     QTDE_FRACIONADA=familiaBalanca
                 )
             ]
-
-        elif not row.first():
-            filters = [
-                p.CODIGO_PRODUTO == filtro.CODIGO,
-                p.PRECO_BALCAO > 0.00,
-                p.PRODUTO_ATIVO == 1
-            ]
-
-            row = ctx.session.query(
-                p.ID_PRODUTO, p.DESCRICAO_PRODUTO, p.PRECO_BALCAO, p.ID_TRIBUTO, p.ID_FAMILIA
-            ).filter(*filters)
-
-            if row.first():
-                rec = row.first()
-
-                preco = self.getPrecoAtacado(
-                    getProduto(
-                        ID_PRODUTO=rec.ID_PRODUTO,
-                        QTDE=filtro.QTDE
-                    )
-                )
-
-                familiaBalanca = self.qBase.isFamiliaBalanca(rec.ID_FAMILIA) if isinstance(rec.ID_FAMILIA, int) else False
-
-                lista = [
-                    itemPedidoCaixa(
-                        NUMERO_PEDIDO=0,
-                        NUMERO_ITEM=0,
-                        ID_PRODUTO=rec.ID_PRODUTO,
-                        DESCRICAO_PRODUTO=rec.DESCRICAO_PRODUTO,
-                        QTDE=filtro.QTDE,
-                        PRECO=preco,
-                        TOTAL=rec.PRECO_BALCAO,
-                        ID_TRIBUTO=rec.ID_TRIBUTO,
-                        QTDE_FRACIONADA=familiaBalanca
-                    )
-                ]
 
         if not any(lista):
             pesquisa = self.buscaProdutosSimilares(
@@ -377,18 +288,12 @@ class produto:
     def buscaProdutosSimilares(
         self, filtro: filtroDescricaoProduto
     ) -> List[listaProduto]:
-        lista = []
-
-        p = ctx.mapProduto
-
-        filters = []
+        termos = []
 
         if len(filtro.DESCRICAO) > 0:
-            lista = self.getSearchList(filtro.DESCRICAO)
+            termos = self.getSearchList(filtro.DESCRICAO)
 
-            [filters.append(p.DESCRICAO_PRODUTO.like(f"%{item}%")) for item in lista]
-
-        query = ctx.session.query(p).filter(*filters).limit(50).all()
+        query = self._produtos.buscar_similares(termos, limite=50)
 
         lista = [
             listaProduto(
@@ -414,53 +319,23 @@ class produto:
             for row in query
         ]
 
-        return [item for item in lista 
+        return [item for item in lista
                 if item.PRODUTO_ATIVO == 1 and item.PRECO_BALCAO > 0.00
                 ]
 
     async def buscaSaldoProduto(self, filtro: filtroProduto) -> float:
-        e = ctx.mapEstoque
+        entradas = self._estoque.soma_qtde(filtro.ID_PRODUTO, 0)
+        saidas = self._estoque.soma_qtde(filtro.ID_PRODUTO, 1)
 
-        filters = [e.ID_PRODUTO == filtro.ID_PRODUTO, e.MOVIMENTO == 0]
-
-        entradas = (
-            ctx.session.query(func.sum(e.QTDE_ESTOQUE).label("ENTRADAS"))
-            .filter(*filters)
-            .first()
-        )
-
-        filters = [e.ID_PRODUTO == filtro.ID_PRODUTO, e.MOVIMENTO == 1]
-
-        saidas = (
-            ctx.session.query(func.sum(e.QTDE_ESTOQUE).label("SAIDAS"))
-            .filter(*filters)
-            .first()
-        )
-
-        e = entradas[0]
-        s = saidas[0]
-
-        if e is None:
-            e = 0
-
-        if s is None:
-            s = 0
+        e = 0 if entradas is None else entradas
+        s = 0 if saidas is None else saidas
 
         saldo = float(e) - float(s)
 
         return saldo
 
     async def get_Lista_de_Produtos(self) -> List[comboProduto]:
-        lista = []
-
-        p = ctx.mapProduto
-
-        filters = [
-            p.PRECO_BALCAO > 0.00, 
-            p.PRODUTO_ATIVO == 1
-        ]
-
-        select1 = ctx.session.query(p).order_by(p.DESCRICAO_PRODUTO).filter(*filters).all()
+        select1 = self._produtos.listar_ativos_completo()
 
         lista = [
             comboProduto(
@@ -473,61 +348,27 @@ class produto:
         return lista
 
     async def getPrecoBebidaQuente(self, filtro: getProduto) -> float:
-        p = ctx.mapProduto
-
-        query = ctx.session.query(
-            p.ID_PRODUTO,
-            p.PRECO_DELIVERY
-        ).filter(
-            p.ID_PRODUTO == filtro.ID_PRODUTO
-        ).first()
+        query = self._produtos.preco_delivery_por_id(filtro.ID_PRODUTO)
 
         if query:
             return float(query.PRECO_DELIVERY)
 
         return 0.0
-    
-    async def getProductImage(self, filtro: filtroProduto) -> str:
-        p = ctx.mapProduto
 
-        record = ctx.session.query(
-            p.ID_PRODUTO,
-            p.FOTO_PRODUTO
-        ).filter(
-            p.ID_PRODUTO == filtro.ID_PRODUTO
-        ).first()
+    async def getProductImage(self, filtro: filtroProduto) -> str:
+        record = self._produtos.foto_por_id(filtro.ID_PRODUTO)
 
         fotoValue = record.FOTO_PRODUTO
 
         if fotoValue is None:
             return ''
-        
+
         retorno = base64.b64encode(fotoValue).decode('utf-8')
 
         return retorno
 
     async def getAllProducts(self) -> List[listaProduto]:
-        lista = []
-
-        p = ctx.mapProduto
-
-        filters = [
-            p.PRECO_BALCAO > 0.00,
-            p.PRODUTO_ATIVO == 1
-        ]
-
-        query = ctx.session.query(
-            p.ID_PRODUTO,
-            p.CODIGO_PRODUTO,
-            p.CODIGO_PRODUTO_PDV,
-            p.DESCRICAO_PRODUTO,
-            p.PRECO_BALCAO,
-            p.PRECO_ATACADO,
-            p.ID_TRIBUTO,
-            p.CODIGO_ZE,
-            p.PRODUTO_ATIVO,
-            p.ID_FAMILIA
-        ).filter(*filters).all()
+        query = self._produtos.listar_para_venda()
 
         lista = [
             listaProduto(
@@ -556,13 +397,9 @@ class produto:
             )
 
         return lista
-    
-    def getEANs(self, filtro: filtroProduto) -> List[str]:
-        p = ctx.mapCodigoBarrasProduto
 
-        query = ctx.session.query(p).filter(
-            p.ID_PRODUTO == filtro.ID_PRODUTO
-        ).all()
+    def getEANs(self, filtro: filtroProduto) -> List[str]:
+        query = self._codigosBarras.listar_por_produto(filtro.ID_PRODUTO)
 
         lista = [
             row.CODIGO_BARRAS_PRODUTO.strip() if row.CODIGO_BARRAS_PRODUTO is not None else ''
@@ -573,16 +410,7 @@ class produto:
         return lista
 
     async def getItensGrade(self) -> List[itemGrade]:
-        lista = []
-
-        g = ctx.mapGradePreco
-
-        query = ctx.session.query(
-            g.ID_PRODUTO,
-            g.QTDE_INICIAL,
-            g.QTDE_FINAL,
-            g.PRECO_VENDA
-        ).all()
+        query = self._grades.listar_todas()
 
         lista = [
             itemGrade(
@@ -597,14 +425,7 @@ class produto:
         return lista
 
     async def getImageProducts(self) -> List[produtoImage]:
-        p = ctx.mapProduto
-
-        query = ctx.session.query(
-            p.ID_PRODUTO,
-            p.FOTO_PRODUTO
-        ).filter(
-            p.FOTO_PRODUTO != None
-        ).all()
+        query = self._produtos.listar_com_foto()
 
         retorno = [
             produtoImage(
@@ -615,6 +436,3 @@ class produto:
         ]
 
         return retorno
-
-    def __del__(self):
-        ctx.session.close_all()

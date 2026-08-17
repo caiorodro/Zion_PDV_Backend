@@ -2,8 +2,11 @@ import asyncio
 from datetime import datetime
 from typing import List
 
-import base.qModel as ctx
 from base.qBase import qBase
+
+from infra.repositories.aberturaCaixaRepository import AberturaCaixaRepository
+from infra.repositories.sangriaRepository import SangriaRepository
+from infra.repositories.usuarioRepository import UsuarioRepository
 
 from models.filtroCAIXA import filtroCAIXA
 from models.filtroFormasPagtoCaixa import filtroFormasPagtoCaixa
@@ -17,17 +20,14 @@ from views.caixa import Caixa
 class Sangria:
     def __init__(self, keep=None, idUser=None):
         self.qBase = qBase(keep)
+        self._repo = SangriaRepository()
+        self._usuarios = UsuarioRepository()
+        self._aberturas = AberturaCaixaRepository()
 
     async def listSangria(self, filtro: filtroSangria):
         data = datetime.strptime(filtro.DATA_SANGRIA, "%d/%m/%Y")
 
-        a = ctx.mapSangria
-
-        _filters = [a.DATA_SANGRIA >= data, a.ID_ABERTURA == filtro.ID_CAIXA]
-
-        query = ctx.session.query(a).filter(*_filters).all()
-
-        query
+        query = self._repo.listar(data, filtro.ID_CAIXA)
 
         retorno = [
             listaSangria(
@@ -61,23 +61,9 @@ class Sangria:
         if not ha:
             raise Exception('Não dinheiro em caixa suficiente para essa sangria')
 
-        idUsuario = asyncio.run(
-            self.getUsuarioDoCaixa(dados.ID_ABERTURA)
-            )
+        idUsuario = self._aberturas.usuario_da_abertura(dados.ID_ABERTURA)
 
-        cmd = ctx.tb_sangria.insert().values(
-            ID_SANGRIA=0,
-            DATA_SANGRIA=datetime.strptime(dados.DATA_SANGRIA, "%d/%m/%Y %H:%M"),
-            DESCRICAO_SANGRIA=dados.DESCRICAO_SANGRIA,
-            ID_USUARIO=idUsuario,
-            VALOR_SANGRIA=dados.VALOR_SANGRIA,
-            ID_SANGRIA_LOCAL=dados.ID_SANGRIA_LOCAL,
-            ID_TERMINAL=dados.ID_TERMINAL,
-            ID_ABERTURA=dados.ID_ABERTURA
-        )
-
-        ctx.session.execute(cmd)
-        ctx.session.commit()
+        self._repo.inserir(dados, idUsuario)
 
         return True
 
@@ -101,56 +87,23 @@ class Sangria:
         return VALOR_SANGRIA < totalEmCaixa
 
     async def getUsuario(self, ID_USUARIO) -> str:
-        NOME_USUARIO = (
-            ctx.session.query(ctx.mapUSUARIO)
-            .filter(ctx.mapUSUARIO.ID_USUARIO == ID_USUARIO)
-            .first()
-            .NOME_USUARIO
-        )
-
-        return NOME_USUARIO
+        return self._usuarios.nome_por_id(ID_USUARIO)
 
     async def getUsuarioDoCaixa(self, ID_CAIXA: int) -> int:
-        retorno = (
-            ctx.session.query(ctx.mapAberturaCaixa)
-            .filter(ctx.mapAberturaCaixa.ID_ABERTURA == ID_CAIXA)
-            .all()[0]
-            .ID_USUARIO
-        )
-
-        return retorno
+        return self._aberturas.usuario_da_abertura(ID_CAIXA)
 
     async def printSangria(self, filtro: filtroCAIXA) -> List[impressaoSangria]:
-        s = ctx.mapSangria
-        u = ctx.mapUSUARIO
-        a = ctx.mapAberturaCaixa
-
-        querySangria = ctx.session.query(
-            s.DATA_SANGRIA,
-            s.VALOR_SANGRIA,
-            s.DESCRICAO_SANGRIA,
-            u.NOME_USUARIO,
-            a.DATA_ABERTURA
-        ).filter(*
-            [
-                s.ID_ABERTURA == filtro.ID_CAIXA,
-                s.ID_USUARIO == u.ID_USUARIO,
-                s.ID_ABERTURA == a.ID_ABERTURA
-            ]
-        ).all()
+        querySangria = self._repo.listar_para_impressao(filtro.ID_CAIXA)
 
         retorno = [
             impressaoSangria(
-                DATA_SANGRIA=self.qBase.TrataDataHora(item.DATA_SANGRIA),
-                DESCRICAO_CAIXA=item.DESCRICAO_SANGRIA,
-                VALOR_SANGRIA=round(float(item.VALOR_SANGRIA), 2),
-                USUARIO_CAIXA=item.NOME_USUARIO,
-                CAIXA_DE=self.qBase.TrataDataHora(item.DATA_ABERTURA)
+                DATA_SANGRIA=self.qBase.TrataDataHora(item["DATA_SANGRIA"]),
+                DESCRICAO_CAIXA=item["DESCRICAO_SANGRIA"],
+                VALOR_SANGRIA=round(float(item["VALOR_SANGRIA"]), 2),
+                USUARIO_CAIXA=item["NOME_USUARIO"],
+                CAIXA_DE=self.qBase.TrataDataHora(item["DATA_ABERTURA"])
             )
             for item in querySangria
         ]
 
-        return retorno 
-    
-    def __del__(self):
-        ctx.session.close_all()
+        return retorno
