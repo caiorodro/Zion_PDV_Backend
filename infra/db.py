@@ -7,6 +7,7 @@ infra/repositories/.
 """
 
 import os
+import threading
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -33,20 +34,51 @@ DB_NAME = _env_obrigatoria("DB_NAME")
 DB_USER = _env_obrigatoria("DB_USER")
 DB_PASSWORD = _env_obrigatoria("DB_PASSWORD")
 
-_POOL_SIZE = int(os.getenv("DB_POOL_SIZE", "10"))
+# Pequeno de propósito: o app roda com vários processos worker (uvicorn
+# `workers=`), cada um com o seu próprio pool — o total de conexões no MySQL
+# é aproximadamente `workers × DB_POOL_SIZE`. Com o padrão antigo (10) e uma
+# máquina de muitos núcleos, só o boot já podia estourar o `max_connections`
+# do servidor (era exatamente esse o efeito: workers falhando ao importar,
+# em processos-filho cujo erro não aparece no terminal principal). Ajuste via
+# variável de ambiente se precisar de mais.
+_POOL_SIZE = int(os.getenv("DB_POOL_SIZE", "3"))
 
-_pool = pooling.MySQLConnectionPool(
-    pool_name="zion_pool",
-    pool_size=_POOL_SIZE,
-    pool_reset_session=True,
-    host=DB_HOST,
-    port=DB_PORT,
-    database=DB_NAME,
-    user=DB_USER,
-    password=DB_PASSWORD,
-    autocommit=False,
-    connection_timeout=10,
-)
+_pool = None
+_pool_lock = threading.Lock()
+
+
+def _get_pool():
+    """Cria o pool na primeira vez que uma conexão é realmente pedida, não na
+    importação do módulo. Evita que TODO worker abra `DB_POOL_SIZE` conexões
+    de uma vez só no boot (e evita derrubar o processo inteiro se o MySQL
+    estiver momentaneamente indisponível/sobrecarregado durante o startup)."""
+    global _pool
+
+    if _pool is None:
+        with _pool_lock:
+            if _pool is None:
+                _pool = pooling.MySQLConnectionPool(
+                    pool_name="zion_pool",
+                    pool_size=_POOL_SIZE,
+                    pool_reset_session=True,
+                    host=DB_HOST,
+                    port=DB_PORT,
+                    database=DB_NAME,
+                    user=DB_USER,
+                    password=DB_PASSWORD,
+                    autocommit=False,
+                    connection_timeout=10,
+                    # Força a implementação 100% Python do driver, sem a
+                    # extensão nativa em C. A extensão C provocou uma queda
+                    # do processo (access violation em MSVCP140.dll, código
+                    # 0xc0000005) na primeira query real após o boot, em
+                    # produção. Com vários processos worker do uvicorn
+                    # acessando o driver ao mesmo tempo, é um cenário
+                    # conhecido de instabilidade dessa extensão no Windows.
+                    use_pure=True,
+                )
+
+    return _pool
 
 
 @contextmanager
@@ -57,7 +89,7 @@ def get_connection():
     away" quando uma conexão do pool ficou ociosa além do wait_timeout do
     servidor) e devolve ao pool ao sair, com rollback em caso de exceção.
     """
-    conn = _pool.get_connection()
+    conn = _get_pool().get_connection()
     conn.ping(reconnect=True, attempts=2, delay=1)
     try:
         yield conn
@@ -79,7 +111,7 @@ def transaction():
             cursor.execute(...)
         # commit automático ao sair sem exceção; rollback se algo levantar
     """
-    conn = _pool.get_connection()
+    conn = _get_pool().get_connection()
     conn.ping(reconnect=True, attempts=2, delay=1)
     try:
         yield conn

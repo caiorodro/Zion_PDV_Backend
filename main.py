@@ -1,3 +1,5 @@
+import os
+
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.gzip import GZipMiddleware
@@ -27,11 +29,12 @@ app.include_router(router)
 if __name__ == "__main__":
 
     freeze_support()
+    
     _workers = int(cpu_count() * 0.75)
 
     uvicorn.run(
-        "main:app", 
-        host=config.URL_SERVER, 
+        "main:app",
+        host=config.URL_SERVER,
         port=config.PORT_SERVER,
         workers=_workers
     )
