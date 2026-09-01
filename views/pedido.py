@@ -738,13 +738,25 @@ class pedido:
 
         return retorno
 
+    def _campoSeguro(self, valor) -> str:
+        """
+        Escapa '|' e quebra de linha antes de entrar num campo de
+        DADOS_PAGAMENTO. FORMA_PAGTO/CODIGO_NSU são texto livre (ex.:
+        MOVILE_PAY, NUBANK, VISA_ELECTRON) e um '|' embutido desloca o
+        parsing posicional que o frontend faz em cima desse formato.
+        """
+        if valor is None:
+            return ''
+
+        return str(valor).replace('|', '/').replace('\n', ' ').replace('\r', ' ')
+
     async def get_DadosPagamentos(self, NUMERO_PEDIDO: int, query: list) -> str:
         lista = [
             '|'.join((
                 str(item.ID_PAGAMENTO),
-                item.FORMA_PAGTO,
+                self._campoSeguro(item.FORMA_PAGTO),
                 str(item.VALOR_PAGO),
-                '' if item.CODIGO_NSU is None else item.CODIGO_NSU
+                self._campoSeguro(item.CODIGO_NSU)
             ))
             for item in query
             if item.NUMERO_PEDIDO == NUMERO_PEDIDO

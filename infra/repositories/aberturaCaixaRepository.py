@@ -30,9 +30,17 @@ class AberturaCaixaRepository:
         return rows[0]["ID_USUARIO"]
 
     def buscar_aberta_recente(self, id_usuario: int, data_limite: datetime) -> Optional[dict]:
+        """Usado por gravaAberturaCaixa() pra bloquear abrir um segundo caixa
+        se o usuário já tiver um aberto nas últimas 24h. Mesmo critério de
+        "aberto" de listar_abertos_com_usuario: sem registro em
+        tb_fechamento_caixa, além do VALOR_FECHAMENTO = 0."""
         sql = (
-            "SELECT ID_ABERTURA FROM tb_abertura_caixa "
-            "WHERE ID_USUARIO = %s AND DATA_ABERTURA >= %s AND VALOR_FECHAMENTO = 0 LIMIT 1"
+            "SELECT ID_ABERTURA FROM tb_abertura_caixa a "
+            "WHERE a.ID_USUARIO = %s AND a.DATA_ABERTURA >= %s AND a.VALOR_FECHAMENTO = 0 "
+            "AND NOT EXISTS ("
+            "SELECT 1 FROM tb_fechamento_caixa f WHERE f.ID_ABERTURA = a.ID_ABERTURA"
+            ") "
+            "LIMIT 1"
         )
         return db.query_one(sql, (id_usuario, data_limite))
 
@@ -55,14 +63,20 @@ class AberturaCaixaRepository:
         db.execute(sql, (valor_fechamento, data_fechamento, id_abertura))
 
     def listar_abertos_com_usuario(self, data_minima: datetime) -> List[SimpleNamespace]:
-        """Usado por listCaixa(): caixas abertos (VALOR_FECHAMENTO = 0) desde
-        `data_minima`, com dados do usuário."""
+        """Usado por listCaixa(): caixas abertos desde `data_minima`, com
+        dados do usuário. Considera fechado (e por isso exclui) qualquer
+        abertura que já tenha registro em tb_fechamento_caixa — critério mais
+        confiável do que só `VALOR_FECHAMENTO = 0`, mantido também como
+        checagem extra."""
         sql = (
             "SELECT a.ID_ABERTURA, a.DATA_ABERTURA, a.VALOR_ABERTURA, a.VALOR_FECHAMENTO, "
             "u.NOME_USUARIO, u.TIPO_USUARIO, u.USUARIO_CAIXA "
             "FROM tb_abertura_caixa a "
             "INNER JOIN tb_usuario u ON a.ID_USUARIO = u.ID_USUARIO "
             "WHERE a.DATA_ABERTURA >= %s AND a.VALOR_FECHAMENTO = 0 "
+            "AND NOT EXISTS ("
+            "SELECT 1 FROM tb_fechamento_caixa f WHERE f.ID_ABERTURA = a.ID_ABERTURA"
+            ") "
             "ORDER BY a.DATA_ABERTURA"
         )
         return db.query_all(sql, (data_minima,), map_cls=SimpleNamespace)

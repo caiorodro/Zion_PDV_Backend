@@ -32,8 +32,11 @@ from models.filtroImpressaoPedido import filtroImpressaoPedido
 from models.filtroListaPedido import filtroListaPedido
 from models.filtroListaProduto import filtroListaProduto
 from models.filtroFaturamentoAutomatico import filtroFaturamentoAutomatico
+from models.filtroIdNF import filtroIdNF
 from models.filtroMunicipio import filtroMunicipio
 from models.filtroNFCe import filtroNFCe
+from models.filtroNotaEntrada import filtroNotaEntrada
+from models.filtroNotaFornecedor import filtroNotaFornecedor
 from models.filtroNumeroPedido import filtroNumeroPedido
 from models.filtroProduto import filtroProduto
 from models.filtroPedido import filtroPedido
@@ -50,7 +53,9 @@ from models.itemTributo import itemTributo
 from models.listaDePagamentos import listaDePagamentos
 from models.NFe_Finalizada import NFe_Finalizada
 from models.listaProduto import listaProduto
+from models.itemNotaEntrada import itemNotaEntrada
 from models.notaAutorizada import notaAutorizada
+from models.notaEntradaResumo import notaEntradaResumo
 from models.nsu import nsu
 from models.numeroItemPedido import numeroItemPedido
 from models.numeroPedido import NUM_PEDIDO
@@ -66,6 +71,7 @@ from views.caixa import Caixa
 from views.cliente import Cliente
 from views.CupomFiscal import cupomFiscal
 from nfe.views.NFCe import NFCe
+from views.notaEntrada import NotaEntrada
 from views.pedido import pedido
 from views.produto import produto
 from views.reforco import Reforco
@@ -276,6 +282,51 @@ async def getCaixa(filtro: filtroCAIXA):
         raise ex
     finally:
         del _caixa
+
+    return result
+
+
+@router.get("/listaNotasEntradaFornecedor")
+async def listaNotasEntradaFornecedor(filtro: filtroNotaEntrada) -> List[notaEntradaResumo]:
+    _notaEntrada = NotaEntrada()
+    result = None
+
+    try:
+        result = await _notaEntrada.listaNotasFornecedor(filtro)
+    except Exception as ex:
+        raise ex
+    finally:
+        del _notaEntrada
+
+    return result
+
+
+@router.get("/buscaXmlNotaEntrada")
+async def buscaXmlNotaEntrada(filtro: filtroIdNF) -> str:
+    _notaEntrada = NotaEntrada()
+    result = None
+
+    try:
+        result = await _notaEntrada.buscaXml(filtro.ID_NF)
+    except Exception as ex:
+        raise ex
+    finally:
+        del _notaEntrada
+
+    return result or ""
+
+
+@router.get("/buscaItensNotaEntrada")
+async def buscaItensNotaEntrada(filtro: filtroNotaFornecedor) -> List[itemNotaEntrada]:
+    _notaEntrada = NotaEntrada()
+    result = None
+
+    try:
+        result = await _notaEntrada.buscaItens(filtro)
+    except Exception as ex:
+        raise ex
+    finally:
+        del _notaEntrada
 
     return result
 
