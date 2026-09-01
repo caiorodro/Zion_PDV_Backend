@@ -7,9 +7,16 @@ foi feito. Sem isso, cada máquina nova tende a reproduzir os mesmos problemas
 
 ## 1. Pré-requisitos
 
-- Python 3.10 instalado e no PATH (`python --version` no cmd deve responder).
+- Python 3.10 instalado e no PATH (`python --version` no cmd deve responder
+  com a versão — ver aviso abaixo se não responder nada).
 - Acesso ao MySQL onde está o schema `zion` (local nessa máquina ou remoto).
 - O usuário de banco `zion_app` já criado nesse MySQL (ver seção 4).
+
+> **Instalando o Python nessa máquina pela primeira vez:** baixe o instalador
+> do Python 3.10 em [python.org](https://www.python.org/downloads/release/python-31011/)
+> e marque a opção **"Add python.exe to PATH"** na primeira tela do instalador
+> — é fácil passar batido, e sem isso o comando `python` não funciona depois
+> (ver troubleshooting abaixo).
 
 ## 2. Copiar o projeto
 
@@ -21,7 +28,7 @@ houver um remoto configurado, ou copiando a pasta já preparada).
 Abra o **cmd** (não PowerShell) na pasta `backend`:
 
 ```cmd
-cd C:\caminho\para\o\backend
+cd C:\Softwares\pdv_backend
 pip install -r requirements.txt
 ```
 
@@ -90,8 +97,8 @@ serviço `ZionPDV` — ajuste o caminho do `python.exe` para o da máquina atual
 (confira com `where python` no cmd):
 
 ```cmd
-nssm.exe install ZionPDV "C:\Users\<usuario>\AppData\Local\Programs\Python\Python310\python.exe" "C:\caminho\para\o\backend\main.py"
-nssm.exe set ZionPDV AppDirectory C:\caminho\para\o\backend
+nssm.exe install ZionPDV "C:\Users\<usuario>\AppData\Local\Programs\Python\Python310\python.exe" "C:\Softwares\pdv_backend\main.py"
+nssm.exe set ZionPDV AppDirectory C:\Softwares\pdv_backend
 nssm.exe set ZionPDV Description Service for Zion PDV Nativo
 nssm.exe set ZionPDV Start SERVICE_AUTO_START
 nssm.exe start ZionPDV
@@ -120,6 +127,27 @@ já que rodando como serviço não tem console visível.
 - Teste o fluxo real pelo frontend.
 
 ## Troubleshooting
+
+**`python main.py` (ou `python --version`, `where python`) não imprime nada
+e volta pro prompt na hora, sem erro nenhum:**
+Sintoma clássico de PATH: o Python está instalado, mas o comando `python`
+não está resolvendo pra ele (às vezes cai num "alias" vazio do Microsoft
+Store em vez do Python real). Confirme se o Python está mesmo instalado:
+```cmd
+dir "C:\Users\%USERNAME%\AppData\Local\Programs\Python\Python310"
+```
+Se a pasta existir, rode chamando o executável pelo caminho completo em vez
+de só `python`:
+```cmd
+"C:\Users\%USERNAME%\AppData\Local\Programs\Python\Python310\python.exe" main.py
+```
+Se funcionar assim, o problema é só o PATH — adicione essa pasta (e a
+subpasta `Scripts`) ao PATH do sistema (Painel de Controle → Sistema →
+Configurações avançadas → Variáveis de Ambiente) pra não precisar do caminho
+completo toda vez. Lembre de reinstalar as dependências com o caminho
+completo também (`...\python.exe -m pip install -r requirements.txt`), já
+que um `pip install` anterior sem o caminho certo pode não ter instalado
+nada de fato pelo mesmo motivo.
 
 **"Too many connections" no MySQL:**
 Cada worker abre seu próprio pool de conexões (`DB_POOL_SIZE`, padrão 3).

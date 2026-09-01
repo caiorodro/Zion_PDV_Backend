@@ -68,14 +68,7 @@ def _get_pool():
                     password=DB_PASSWORD,
                     autocommit=False,
                     connection_timeout=10,
-                    # Força a implementação 100% Python do driver, sem a
-                    # extensão nativa em C. A extensão C provocou uma queda
-                    # do processo (access violation em MSVCP140.dll, código
-                    # 0xc0000005) na primeira query real após o boot, em
-                    # produção. Com vários processos worker do uvicorn
-                    # acessando o driver ao mesmo tempo, é um cenário
-                    # conhecido de instabilidade dessa extensão no Windows.
-                    use_pure=True,
+                    use_pure=True
                 )
 
     return _pool
