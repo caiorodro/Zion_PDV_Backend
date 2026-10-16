@@ -179,15 +179,23 @@ class pedido:
         # já que era um objeto único no processo) e o cabeçalho do pedido era
         # commitado sozinho, antes do resto — uma falha no meio do fluxo podia
         # deixar um pedido gravado sem itens/pagamento. Isso não acontece mais.
+        chave = order.pedido.INTERNAL_KEY_ZION
+
         try:
-            with db.transaction() as conn:
+            # Trava pela chave: dois envios simultâneos da mesma venda (duas
+            # janelas do PDV abertas na mesma máquina) chegavam no mesmo
+            # segundo, em workers diferentes, e os dois passavam pela
+            # checagem abaixo antes de qualquer um commitar -- pedido
+            # duplicado (AGITO, 09-15/10). Com a trava, o segundo espera o
+            # primeiro commitar e cai no "já existe".
+            with db.transaction(lock_name=f"pedido:{chave}" if chave else None) as conn:
                 # Idempotência: reenvio do mesmo pedido (retry de rede em
                 # api/server.py:makeRequest, ou da fila local em
                 # utils/filaPedidos.py, quando a resposta do primeiro envio
                 # se perde mas o INSERT já tinha acontecido) chega aqui com
                 # a mesma INTERNAL_KEY_ZION -- devolve o NUMERO_PEDIDO já
                 # gravado em vez de duplicar cabeçalho/itens/pagamento.
-                if order.pedido.INTERNAL_KEY_ZION:
+                if chave:
                     numeroExistente = self._pedidos.buscar_numero_por_internal_key_zion(
                         order.pedido.INTERNAL_KEY_ZION, conn=conn
                     )

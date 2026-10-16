@@ -94,7 +94,7 @@ def get_connection():
 
 
 @contextmanager
-def transaction():
+def transaction(lock_name: str | None = None, lock_timeout: int = 15):
     """Para operações que precisam de múltiplos `execute` atômicos.
 
     Uso:
@@ -103,17 +103,38 @@ def transaction():
             cursor.execute(...)
             cursor.execute(...)
         # commit automático ao sair sem exceção; rollback se algo levantar
+
+    `lock_name`: serializa transações com o mesmo nome via GET_LOCK do
+    MySQL (vale entre workers/processos, não só threads). A trava é pega
+    antes de qualquer leitura e só é solta DEPOIS do commit/rollback -- quem
+    estava esperando já enxerga o que a anterior gravou. Usado pra
+    idempotência do pedido: dois envios simultâneos da mesma venda passavam
+    juntos pela checagem "já existe?" e gravavam em dobro.
     """
     conn = _get_pool().get_connection()
     conn.ping(reconnect=True, attempts=2, delay=1)
+    travado = False
     try:
+        if lock_name:
+            # Nome de GET_LOCK vale pro servidor MySQL inteiro (várias lojas
+            # no mesmo servidor) e tem limite de 64 caracteres.
+            lock_name = f"{DB_NAME}:{lock_name}"[:64]
+            row = query_one_in(conn, "SELECT GET_LOCK(%s, %s) AS ok", (lock_name, lock_timeout))
+            if not row or row["ok"] != 1:
+                raise TimeoutError(f"Não foi possível obter a trava '{lock_name}'")
+            travado = True
+
         yield conn
         conn.commit()
     except Exception:
         conn.rollback()
         raise
     finally:
-        conn.close()
+        try:
+            if travado:
+                query_one_in(conn, "SELECT RELEASE_LOCK(%s) AS ok", (lock_name,))
+        finally:
+            conn.close()
 
 
 def query_all(sql, params=(), map_cls=None):
