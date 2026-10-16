@@ -23,6 +23,12 @@ class Config(object):
 
     PDF_FILES = 'PDF'
 
+    # Pula a consistência de saldo em caixa ao gravar sangria (ver
+    # views/sangria.py:Sangria.gravaSangria) -- liga via variável de
+    # ambiente no .env, não aqui (nunca texto puro de config operacional
+    # sensível direto no código).
+    NAO_CHECAR_SANGRIA = os.getenv("NAO_CHECAR_SANGRIA", "false").strip().lower() in ("1", "true", "yes")
+
     SESSION_COOKIE_SECURE = False
     URL_SERVER = '0.0.0.0'
     PORT_SERVER = 1199
@@ -53,6 +59,9 @@ class Config(object):
         "Goomer",
         "Delivery próprio",
         "Balcão",
+        "AUTOATENDIMENTO",
+        "99Food",
+        "Mesa",
     )
 
     STATUS = [

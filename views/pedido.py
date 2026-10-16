@@ -29,11 +29,13 @@ from infra.repositories.planoContaRepository import PlanoContaRepository
 from infra.repositories.produtoRepository import ProdutoRepository
 from infra.repositories.transporteRepository import TransporteRepository
 from infra.repositories.tributoRepository import TributoRepository
+from infra.repositories.usuarioRepository import UsuarioRepository
 from models.clienteEndereco import clienteEndereco
 from models.clientePedido import clientePedido
 from models.conclusaoPagamento import conclusaoPagamento
 from models.comboProduto import comboProduto
 from models.dadosEmitente import dadosEmitente
+from models.dadosEmpresaFiscal import dadosEmpresaFiscal
 from models.dadosNFCe import dadosNFCe
 from models.dadosPedido import dadosPedido
 from models.editPedido import editItemPedido, editPedido, editPedidoPagamento
@@ -119,17 +121,21 @@ class pedido:
         self._tributos = TributoRepository()
         self._cfops = CFOPRepository()
         self._numerosNota = NumeroNotaRepository()
+        self._usuarios = UsuarioRepository()
 
     async def preencheConsumidorFinal(self, consumidorFinal: clienteEndereco, _pedido: ped) -> ped:
         cliente = self._clientes.buscar_por_id(consumidorFinal.ID_CLIENTE)
         endereco = self._enderecos.buscar_por_id(consumidorFinal.ID_ENDERECO)
 
         _pedido.NOME_CLIENTE = cliente.NOME_CLIENTE
-        _pedido.ENDERECO_CLIENTE = ' '.join((
-            endereco.ENDERECO,
-            endereco.NUMERO_ENDERECO,
-            endereco.COMPLEMENTO_ENDERECO
-            ))
+        _pedido.ENDERECO_CLIENTE = ' '.join(
+            parte for parte in (
+                endereco.ENDERECO,
+                endereco.NUMERO_ENDERECO,
+                endereco.COMPLEMENTO_ENDERECO,
+            )
+            if parte
+        )
 
         _pedido.BAIRRO_CLIENTE = endereco.BAIRRO
         _pedido.TELEFONE_CLIENTE = cliente.TELEFONE_CLIENTE
@@ -175,6 +181,20 @@ class pedido:
         # deixar um pedido gravado sem itens/pagamento. Isso não acontece mais.
         try:
             with db.transaction() as conn:
+                # Idempotência: reenvio do mesmo pedido (retry de rede em
+                # api/server.py:makeRequest, ou da fila local em
+                # utils/filaPedidos.py, quando a resposta do primeiro envio
+                # se perde mas o INSERT já tinha acontecido) chega aqui com
+                # a mesma INTERNAL_KEY_ZION -- devolve o NUMERO_PEDIDO já
+                # gravado em vez de duplicar cabeçalho/itens/pagamento.
+                if order.pedido.INTERNAL_KEY_ZION:
+                    numeroExistente = self._pedidos.buscar_numero_por_internal_key_zion(
+                        order.pedido.INTERNAL_KEY_ZION, conn=conn
+                    )
+
+                    if numeroExistente is not None:
+                        return numeroExistente
+
                 cliente = self.getClientePedido(order.pedido.ID_CLIENTE, order.pedido.ID_ENDERECO, conn=conn)
 
                 if 'consumidor final' not in cliente.NOME_CLIENTE.lower():
@@ -230,6 +250,11 @@ class pedido:
 
     def insereNovoPedido(self, pedido: pedido, conn=None) -> int:
         cliente = self.getClientePedido(pedido.ID_CLIENTE, pedido.ID_ENDERECO, conn=conn)
+
+        # NUMERO_VENDA é sequencial por ID_CAIXA, independente da ORIGEM do
+        # pedido — calculado aqui (server-side, dentro da transação), não
+        # aceito do payload, para não depender do que o cliente mandou.
+        pedido.NUMERO_VENDA = self._pedidos.proximo_numero_venda(pedido.ID_CAIXA, conn=conn)
 
         return self._pedidos.inserir(pedido, cliente, conn=conn)
 
@@ -1965,8 +1990,15 @@ class pedido:
 
             rec = dadosNFCe(
                 NUMERO_COMANDA=pedido.NUMERO_PEDIDO,
+                # Era datetime.now() -- carimbava a hora do SERVIDOR (backend
+                # na Hostinger, EUA, ~3h à frente do Brasil) no momento da
+                # (re)emissão, em vez da hora real da venda. pedido.DATA_HORA
+                # já é a hora certa, gravada pelo PC da loja no momento da
+                # venda (ver infra/repositories/pedidoRepository.py) -- é o
+                # mesmo campo que getDadosNFCe() já usa corretamente logo
+                # acima (via qBase.TrataDataHora).
                 DATA_HORA=datetime.strftime(
-                    datetime.now(), "%d/%m/%Y %H:%M"
+                    pedido.DATA_HORA, "%d/%m/%Y %H:%M"
                 ),
                 NOME_CLIENTE=_NOME_CLIENTE.strip(),
                 CPF=self.qBase.onlyNumbers(CPF) if len(CPF) > 0 else "ISENTO",
@@ -2287,6 +2319,58 @@ class pedido:
         )
 
         return retorno
+
+    async def getDadosEmpresaFiscal(self) -> dadosEmpresaFiscal:
+        # Alimenta a aba "Fiscal" do histórico (frontend) -- reconfigura
+        # Zeus/configuracao.xml (Emitente/EnderecoEmitente/cUF) a partir
+        # do 1º registro de tb_empresa, sem precisar editar o XML na mão
+        # em cada terminal. Mesma lógica de separar logradouro/número que
+        # getNFCe() já usa pro emitente (ver acima) -- devolve pronto pro
+        # formato do XML, pra quem consome só gravar campo por campo.
+        empresa = self._empresas.buscar_padrao()
+
+        if empresa is None:
+            raise Exception("Nenhuma empresa cadastrada em tb_empresa.")
+
+        logradouro = (empresa.ENDERECO or '').split(',')
+        xLgr = logradouro[0].strip()
+        nro = 'SN'
+
+        if len(logradouro) > 1:
+            nro = self.qBase.onlyNumbers(logradouro[1]).strip()
+
+        if len(nro) == 0:
+            nro = 'SN'
+
+        codigoIbge = (empresa.CODIGO_MUNICIPIO_IBGE or '').strip()
+        # cUF = os 2 primeiros dígitos do código IBGE do município (ex.:
+        # 2304400 Fortaleza/CE -> 23) -- é assim que o próprio schema da
+        # NFC-e deriva a UF do código do município, sem precisar de uma
+        # tabela de UF -> cUF à parte.
+        cUF = codigoIbge[0:2] if len(codigoIbge) >= 2 else ''
+
+        return dadosEmpresaFiscal(
+            CNPJ=self.qBase.onlyNumbers(empresa.CNPJ or ''),
+            xNome=empresa.RAZAO_SOCIAL or '',
+            xFant=empresa.NOME_FANTASIA or '',
+            IE=self.qBase.onlyNumbers(empresa.IE or ''),
+            CRT=str(empresa.CRT) if empresa.CRT is not None else '',
+            xLgr=xLgr,
+            nro=nro,
+            xBairro=empresa.BAIRRO or '',
+            cMun=codigoIbge,
+            xMun=empresa.CIDADE or '',
+            UF=(empresa.UF or '').strip().upper(),
+            CEP=self.qBase.onlyNumbers(empresa.CEP or ''),
+            fone=self.qBase.onlyNumbers(empresa.TELEFONE or ''),
+            cUF=cUF,
+            # TOKEN_CSC/CSC existem em tb_empresa (varchar(6)/varchar(100))
+            # mas não faziam parte de mapEmpresa/EmpresaRepository ainda --
+            # sem .strip() em onlyNumbers pro CSC, que é um GUID com letras
+            # e hífen, não um número.
+            CIdToken=(empresa.TOKEN_CSC or '').strip(),
+            Csc=(empresa.CSC or '').strip(),
+        )
 
     async def finalizaNFCe_V2(self, nota: notaAutorizada):
         with db.transaction() as conn:

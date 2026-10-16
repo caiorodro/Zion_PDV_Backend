@@ -17,6 +17,8 @@ from models.sangria import sangria
 
 from views.caixa import Caixa
 
+from cfg.config import Config
+
 class Sangria:
     def __init__(self, keep=None, idUser=None):
         self.qBase = qBase(keep)
@@ -51,15 +53,16 @@ class Sangria:
 
     def gravaSangria(self, dados: sangria) -> bool:
 
-        ha = asyncio.run(
-            self.verificaSeHaDinheiroNoCaixa(
-                dados.ID_ABERTURA,
-                dados.VALOR_SANGRIA
+        if not Config.NAO_CHECAR_SANGRIA:
+            ha = asyncio.run(
+                self.verificaSeHaDinheiroNoCaixa(
+                    dados.ID_ABERTURA,
+                    dados.VALOR_SANGRIA
+                )
             )
-        )
 
-        if not ha:
-            raise Exception('Não dinheiro em caixa suficiente para essa sangria')
+            if not ha:
+                raise Exception('Não dinheiro em caixa suficiente para essa sangria')
 
         idUsuario = self._aberturas.usuario_da_abertura(dados.ID_ABERTURA)
 

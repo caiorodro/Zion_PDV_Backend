@@ -650,6 +650,15 @@ async def cancelaPedido(record: filtroCancelamento):
     try:
         result = await _cliente.cancelaPedido(record)
     except Exception as ex:
+        # O handler padrão do Starlette devolve só "Internal Server Error"
+        # pro cliente (sem detalhe nenhum) -- tanto pra senha errada quanto
+        # pra qualquer outro erro daqui pra baixo (pedido inexistente, etc).
+        # O frontend hoje interpreta qualquer status != 200 como "senha
+        # incorreta", então sem logar aqui o motivo real fica invisível.
+        print(
+            f"[cancelaPedido] NUMERO_PEDIDO={record.NUMERO_PEDIDO}: {ex.args}",
+            traceback.format_exc()
+        )
         raise ex
 
     finally:
@@ -1310,6 +1319,22 @@ async def getDadosEmitente():
 
     try:
         retorno = await ped.getDadosEmitente()
+    except Exception as ex:
+        raise ex
+
+    finally:
+        del ped
+
+    return retorno
+
+@router.get('/getDadosEmpresaFiscal')
+async def getDadosEmpresaFiscal():
+    ped = pedido()
+
+    retorno = None
+
+    try:
+        retorno = await ped.getDadosEmpresaFiscal()
     except Exception as ex:
         raise ex
 

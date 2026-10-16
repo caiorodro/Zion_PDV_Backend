@@ -53,6 +53,39 @@ class PedidoRepository:
         sql = f"SELECT {_COLUNAS} FROM tb_pedido WHERE NUMERO_PEDIDO = %s"
         return db.query_one(sql, (numero_pedido,), map_cls=mapPedido)
 
+    def buscar_numero_por_internal_key_zion(self, internal_key_zion: str, conn=None) -> Optional[int]:
+        """NUMERO_PEDIDO de um pedido já gravado com essa INTERNAL_KEY_ZION
+        (UUID gerado uma vez por venda no PDV, ver views/caixa.py), ou None
+        se ainda não existe. Usado por gravaPedido() pra idempotência: um
+        reenvio do mesmo pedido (retry de rede em api/server.py:makeRequest
+        ou da fila local, utils/filaPedidos.py) chega aqui com a mesma
+        chave — sem essa checagem, cada reenvio duplicava o pedido inteiro
+        (tb_pedido/tb_item_pedido/tb_pedido_pagamento)."""
+        sql = "SELECT NUMERO_PEDIDO FROM tb_pedido WHERE INTERNAL_KEY_ZION = %s LIMIT 1"
+        row = (
+            db.query_one_in(conn, sql, (internal_key_zion,))
+            if conn is not None
+            else db.query_one(sql, (internal_key_zion,))
+        )
+        return row["NUMERO_PEDIDO"] if row else None
+
+    def proximo_numero_venda(self, id_caixa: int, conn) -> int:
+        """Próximo NUMERO_VENDA sequencial para o ID_CAIXA informado,
+        independente da ORIGEM do pedido (PDV, delivery, ifood, etc.).
+
+        Precisa rodar dentro da mesma transação do INSERT do cabeçalho
+        (`conn` obrigatório, sem variante fora de transação): o `FOR UPDATE`
+        trava a leitura até o commit/rollback da transação, então dois
+        pedidos concorrentes no mesmo caixa não recebem o mesmo número
+        (existe índice em ID_CAIXA — IDX_CAIXA_PEDIDO — então o lock não
+        varre a tabela inteira)."""
+        sql = (
+            "SELECT COALESCE(MAX(NUMERO_VENDA), 0) + 1 AS PROXIMO "
+            "FROM tb_pedido WHERE ID_CAIXA = %s FOR UPDATE"
+        )
+        row = db.query_one_in(conn, sql, (id_caixa,))
+        return row["PROXIMO"]
+
     def inserir(self, pedido, cliente, conn=None) -> int:
         """Grava o cabeçalho do pedido. `cliente` é um models.clientePedido.clientePedido
         (NOME_CLIENTE/ENDERECO/BAIRRO/TELEFONE vêm dele, não do próprio `pedido`

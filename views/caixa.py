@@ -4,6 +4,7 @@ from typing import List
 
 from dateutil.relativedelta import relativedelta
 
+from base.authentication import authentication
 from base.qBase import qBase
 from cfg.config import Config
 from infra.repositories.aberturaCaixaRepository import AberturaCaixaRepository
@@ -156,16 +157,24 @@ class Caixa:
         )
 
     async def verificaSenhaAberturaCaixa(self, dados: dadosUsuario) -> bool:
+        # Desde que o Zion ADM passou a gravar SENHA_USUARIO com hash
+        # Werkzeug (usuário novo/com senha trocada por lá), um "==" direto
+        # contra o texto digitado nunca mais bate pra esses usuários --
+        # precisa aceitar tanto o hash quanto o texto puro legado que ainda
+        # sobra em tb_usuario pra quem nunca teve a senha regravada.
         currentPassword = self._usuarios.buscar_por_id(dados.ID_USUARIO).SENHA_USUARIO
 
-        return currentPassword == dados.SENHA_USUARIO
+        return authentication.verificar_senha(dados.SENHA_USUARIO, currentPassword)
 
     async def listUsuario(self):
         query = self._usuarios.listar_ativos()
 
         retorno = [
             listaDeUsuario(
-                ID_USUARIO=item.ID_USUARIO, NOME_USUARIO=item.NOME_USUARIO
+                ID_USUARIO=item.ID_USUARIO,
+                NOME_USUARIO=item.NOME_USUARIO,
+                USUARIO_CAIXA=item.USUARIO_CAIXA,
+                ACESSO_FECHAMENTO=item.ACESSO_FECHAMENTO,
             ).__dict__
             for item in query
         ]

@@ -100,17 +100,32 @@ class Cliente:
         endereco = self._enderecos.buscar_por_id(dados.ID_ENDERECO)
         transporte = self._transportes.buscar_por_id(dados.ID_TRANSPORTE)
 
+        c1 = (dados.ID_CLIENTE, "")
         e1 = (0, "")
         t1 = (0, "")
+
+        # Mesma guarda que endereço/transporte já tinham -- um pedido pode
+        # referenciar um ID_CLIENTE que não existe mais em tb_cliente
+        # (cliente excluído, ou o pedido nunca teve um cliente de verdade
+        # vinculado). Sem isso, cliente.ID_CLIENTE abaixo estourava
+        # AttributeError e virava 500 -- o front então recebia None e
+        # quebrava de novo em exibePedido().
+        if cliente is not None:
+            c1 = (
+                cliente.ID_CLIENTE,
+                "".join(
+                    (cliente.NOME_CLIENTE or "", f", Tel: {cliente.TELEFONE_CLIENTE or ''}")
+                ),
+            )
 
         if endereco is not None:
             e1 = (
                 endereco.ID_ENDERECO,
                 " ".join(
                     (
-                        endereco.ENDERECO,
-                        endereco.NUMERO_ENDERECO,
-                        endereco.COMPLEMENTO_ENDERECO,
+                        endereco.ENDERECO or "",
+                        endereco.NUMERO_ENDERECO or "",
+                        endereco.COMPLEMENTO_ENDERECO or "",
                     )
                 ),
             )
@@ -119,10 +134,8 @@ class Cliente:
             t1 = (transporte.ID_TRANSPORTE, transporte.NOME_TRANSPORTE)
 
         retorno = Cliente_Endereco_Transporte(
-            ID_CLIENTE=cliente.ID_CLIENTE,
-            NOME_CLIENTE="".join(
-                (cliente.NOME_CLIENTE, f", Tel: {cliente.TELEFONE_CLIENTE}")
-            ),
+            ID_CLIENTE=c1[0],
+            NOME_CLIENTE=c1[1],
             ID_ENDERECO=e1[0],
             ENDERECO=e1[1],
             ID_TRANSPORTE=t1[0],
