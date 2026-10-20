@@ -29,27 +29,24 @@ class AberturaCaixaRepository:
         rows = db.query_all(sql, (id_abertura,))
         return rows[0]["ID_USUARIO"]
 
-    def buscar_aberta_recente(self, id_usuario: int, data_limite: datetime) -> Optional[dict]:
-        """Usado por gravaAberturaCaixa() pra bloquear abrir um segundo caixa
-        se o usuário já tiver um aberto nas últimas 24h. Mesmo critério de
-        "aberto" de listar_abertos_com_usuario: sem registro em
-        tb_fechamento_caixa, além do VALOR_FECHAMENTO = 0."""
-        sql = (
-            "SELECT ID_ABERTURA FROM tb_abertura_caixa a "
-            "WHERE a.ID_USUARIO = %s AND a.DATA_ABERTURA >= %s AND a.VALOR_FECHAMENTO = 0 "
-            "AND NOT EXISTS ("
-            "SELECT 1 FROM tb_fechamento_caixa f WHERE f.ID_ABERTURA = a.ID_ABERTURA"
-            ") "
-            "LIMIT 1"
-        )
-        return db.query_one(sql, (id_usuario, data_limite))
-
     def inserir(self, data_abertura: datetime, valor_abertura: float, id_usuario: int) -> int:
         sql = (
             "INSERT INTO tb_abertura_caixa (DATA_ABERTURA, VALOR_ABERTURA, VALOR_FECHAMENTO, "
             "ID_USUARIO, DATA_FECHAMENTO) VALUES (%s, %s, 0, %s, NULL)"
         )
         return db.execute(sql, (data_abertura, valor_abertura, id_usuario))
+
+    def existe_aberto_do_usuario(self, id_usuario: int, data_minima: datetime) -> bool:
+        """Caixa aberto = aberto por esse usuário desde `data_minima` e sem
+        registro em tb_fechamento_caixa."""
+        sql = (
+            "SELECT COUNT(*) AS N FROM tb_abertura_caixa a "
+            "WHERE a.DATA_ABERTURA >= %s AND a.ID_USUARIO = %s "
+            "AND NOT EXISTS ("
+            "SELECT 1 FROM tb_fechamento_caixa f WHERE f.ID_ABERTURA = a.ID_ABERTURA"
+            ")"
+        )
+        return db.query_one(sql, (data_minima, id_usuario))["N"] > 0
 
     def atualizar_impressao(self, id_abertura: int, valor: int) -> None:
         sql = "UPDATE tb_abertura_caixa SET IMPRESSAO = %s WHERE ID_ABERTURA = %s"

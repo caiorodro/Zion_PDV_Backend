@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List
 
 from dateutil.relativedelta import relativedelta
@@ -133,16 +133,9 @@ class Caixa:
                 ADMIN=False
             )
 
-        limiteAbertura = datetime.now() - timedelta(hours=24)
-
-        aberturaRecente = self._aberturas.buscar_aberta_recente(dados.ID_USUARIO, limiteAbertura)
-
-        if aberturaRecente is not None:
-            return usuarioTipo(
-                ID_CAIXA=-2,
-                ADMIN=False
-            )
-
+        # Sem checagem de caixa aberto aqui: o frontend chama
+        # /verificaCaixaAberto (com ID_USUARIO) antes e só chega neste
+        # endpoint se puder abrir.
         idCaixa = self._aberturas.inserir(
             datetime.strptime(dados.DATA_ABERTURA, "%d/%m/%Y %H:%M"),
             dados.VALOR_ABERTURA,
@@ -327,6 +320,16 @@ class Caixa:
         return self.qBase.toRoute(retorno.__dict__, 200)
 
     async def verificaCaixaAberto(self, filtro: filtroFormasPagtoCaixa) -> bool:
+        if filtro.ID_USUARIO:
+            # Antes de abrir caixa: esse usuário já tem um aberto nas
+            # últimas 24h? DATA_ABERTURA é hora local (Brasília, UTC-3 fixo,
+            # sem horário de verão) e o servidor Linux roda em UTC -- offset
+            # fixo em vez de ZoneInfo, que no Windows exige o pacote tzdata.
+            agora = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=3)
+
+            return self._aberturas.existe_aberto_do_usuario(filtro.ID_USUARIO, agora - timedelta(hours=24))
+
+        # Sem ID_USUARIO: o caixa ID_CAIXA ainda está aberto? (reforço etc.)
         abertura = self._aberturas.buscar_por_id(filtro.ID_CAIXA)
 
         fechamento = self._fechamentos.listar(filtro.ID_CAIXA, filtro.FORMA_PAGTO)
