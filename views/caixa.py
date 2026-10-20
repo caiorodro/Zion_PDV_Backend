@@ -1,9 +1,10 @@
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List
 
 from dateutil.relativedelta import relativedelta
 
+from base.authentication import authentication
 from base.qBase import qBase
 from cfg.config import Config
 from infra.repositories.aberturaCaixaRepository import AberturaCaixaRepository
@@ -132,16 +133,9 @@ class Caixa:
                 ADMIN=False
             )
 
-        limiteAbertura = datetime.now() - timedelta(hours=24)
-
-        aberturaRecente = self._aberturas.buscar_aberta_recente(dados.ID_USUARIO, limiteAbertura)
-
-        if aberturaRecente is not None:
-            return usuarioTipo(
-                ID_CAIXA=-2,
-                ADMIN=False
-            )
-
+        # Sem checagem de caixa aberto aqui: o frontend chama
+        # /verificaCaixaAberto (com ID_USUARIO) antes e só chega neste
+        # endpoint se puder abrir.
         idCaixa = self._aberturas.inserir(
             datetime.strptime(dados.DATA_ABERTURA, "%d/%m/%Y %H:%M"),
             dados.VALOR_ABERTURA,
@@ -156,16 +150,24 @@ class Caixa:
         )
 
     async def verificaSenhaAberturaCaixa(self, dados: dadosUsuario) -> bool:
+        # Desde que o Zion ADM passou a gravar SENHA_USUARIO com hash
+        # Werkzeug (usuário novo/com senha trocada por lá), um "==" direto
+        # contra o texto digitado nunca mais bate pra esses usuários --
+        # precisa aceitar tanto o hash quanto o texto puro legado que ainda
+        # sobra em tb_usuario pra quem nunca teve a senha regravada.
         currentPassword = self._usuarios.buscar_por_id(dados.ID_USUARIO).SENHA_USUARIO
 
-        return currentPassword == dados.SENHA_USUARIO
+        return authentication.verificar_senha(dados.SENHA_USUARIO, currentPassword)
 
     async def listUsuario(self):
         query = self._usuarios.listar_ativos()
 
         retorno = [
             listaDeUsuario(
-                ID_USUARIO=item.ID_USUARIO, NOME_USUARIO=item.NOME_USUARIO
+                ID_USUARIO=item.ID_USUARIO,
+                NOME_USUARIO=item.NOME_USUARIO,
+                USUARIO_CAIXA=item.USUARIO_CAIXA,
+                ACESSO_FECHAMENTO=item.ACESSO_FECHAMENTO,
             ).__dict__
             for item in query
         ]
@@ -318,6 +320,16 @@ class Caixa:
         return self.qBase.toRoute(retorno.__dict__, 200)
 
     async def verificaCaixaAberto(self, filtro: filtroFormasPagtoCaixa) -> bool:
+        if filtro.ID_USUARIO:
+            # Antes de abrir caixa: esse usuário já tem um aberto nas
+            # últimas 24h? DATA_ABERTURA é hora local (Brasília, UTC-3 fixo,
+            # sem horário de verão) e o servidor Linux roda em UTC -- offset
+            # fixo em vez de ZoneInfo, que no Windows exige o pacote tzdata.
+            agora = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=3)
+
+            return self._aberturas.existe_aberto_do_usuario(filtro.ID_USUARIO, agora - timedelta(hours=24))
+
+        # Sem ID_USUARIO: o caixa ID_CAIXA ainda está aberto? (reforço etc.)
         abertura = self._aberturas.buscar_por_id(filtro.ID_CAIXA)
 
         fechamento = self._fechamentos.listar(filtro.ID_CAIXA, filtro.FORMA_PAGTO)

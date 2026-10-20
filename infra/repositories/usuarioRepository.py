@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from typing import List, Optional
 
 from infra import db
+from base.authentication import authentication
 from base.mapTable import mapUSUARIO
 
 
@@ -38,5 +39,12 @@ class UsuarioRepository:
         return [row["SENHA_USUARIO"] for row in db.query_all(sql)]
 
     def existe_admin_com_senha(self, senha: str) -> bool:
-        sql = "SELECT ID_USUARIO FROM tb_usuario WHERE SENHA_USUARIO = %s AND TIPO_USUARIO = 1"
-        return db.query_one(sql, (senha,)) is not None
+        # Não dá pra comparar hash Werkzeug direto no SQL (o hash embute um
+        # salt aleatório -- o mesmo texto puro nunca gera o mesmo hash duas
+        # vezes, então "WHERE SENHA_USUARIO = %s" nunca bateria). Busca as
+        # senhas de todos os admins e confere uma a uma em Python, aceitando
+        # tanto hash quanto texto puro legado (authentication.verificar_senha).
+        return any(
+            authentication.verificar_senha(senha, armazenada)
+            for armazenada in self.listar_senhas_admin()
+        )

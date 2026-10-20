@@ -7,6 +7,7 @@ infra/repositories/.
 """
 
 import os
+import threading
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -33,20 +34,44 @@ DB_NAME = _env_obrigatoria("DB_NAME")
 DB_USER = _env_obrigatoria("DB_USER")
 DB_PASSWORD = _env_obrigatoria("DB_PASSWORD")
 
-_POOL_SIZE = int(os.getenv("DB_POOL_SIZE", "10"))
+# Pequeno de propósito: o app roda com vários processos worker (uvicorn
+# `workers=`), cada um com o seu próprio pool — o total de conexões no MySQL
+# é aproximadamente `workers × DB_POOL_SIZE`. Com o padrão antigo (10) e uma
+# máquina de muitos núcleos, só o boot já podia estourar o `max_connections`
+# do servidor (era exatamente esse o efeito: workers falhando ao importar,
+# em processos-filho cujo erro não aparece no terminal principal). Ajuste via
+# variável de ambiente se precisar de mais.
+_POOL_SIZE = int(os.getenv("DB_POOL_SIZE", "3"))
 
-_pool = pooling.MySQLConnectionPool(
-    pool_name="zion_pool",
-    pool_size=_POOL_SIZE,
-    pool_reset_session=True,
-    host=DB_HOST,
-    port=DB_PORT,
-    database=DB_NAME,
-    user=DB_USER,
-    password=DB_PASSWORD,
-    autocommit=False,
-    connection_timeout=10,
-)
+_pool = None
+_pool_lock = threading.Lock()
+
+
+def _get_pool():
+    """Cria o pool na primeira vez que uma conexão é realmente pedida, não na
+    importação do módulo. Evita que TODO worker abra `DB_POOL_SIZE` conexões
+    de uma vez só no boot (e evita derrubar o processo inteiro se o MySQL
+    estiver momentaneamente indisponível/sobrecarregado durante o startup)."""
+    global _pool
+
+    if _pool is None:
+        with _pool_lock:
+            if _pool is None:
+                _pool = pooling.MySQLConnectionPool(
+                    pool_name="zion_pool",
+                    pool_size=_POOL_SIZE,
+                    pool_reset_session=True,
+                    host=DB_HOST,
+                    port=DB_PORT,
+                    database=DB_NAME,
+                    user=DB_USER,
+                    password=DB_PASSWORD,
+                    autocommit=False,
+                    connection_timeout=10,
+                    use_pure=True
+                )
+
+    return _pool
 
 
 @contextmanager
@@ -57,7 +82,7 @@ def get_connection():
     away" quando uma conexão do pool ficou ociosa além do wait_timeout do
     servidor) e devolve ao pool ao sair, com rollback em caso de exceção.
     """
-    conn = _pool.get_connection()
+    conn = _get_pool().get_connection()
     conn.ping(reconnect=True, attempts=2, delay=1)
     try:
         yield conn
@@ -69,7 +94,7 @@ def get_connection():
 
 
 @contextmanager
-def transaction():
+def transaction(lock_name: str | None = None, lock_timeout: int = 15):
     """Para operações que precisam de múltiplos `execute` atômicos.
 
     Uso:
@@ -78,17 +103,38 @@ def transaction():
             cursor.execute(...)
             cursor.execute(...)
         # commit automático ao sair sem exceção; rollback se algo levantar
+
+    `lock_name`: serializa transações com o mesmo nome via GET_LOCK do
+    MySQL (vale entre workers/processos, não só threads). A trava é pega
+    antes de qualquer leitura e só é solta DEPOIS do commit/rollback -- quem
+    estava esperando já enxerga o que a anterior gravou. Usado pra
+    idempotência do pedido: dois envios simultâneos da mesma venda passavam
+    juntos pela checagem "já existe?" e gravavam em dobro.
     """
-    conn = _pool.get_connection()
+    conn = _get_pool().get_connection()
     conn.ping(reconnect=True, attempts=2, delay=1)
+    travado = False
     try:
+        if lock_name:
+            # Nome de GET_LOCK vale pro servidor MySQL inteiro (várias lojas
+            # no mesmo servidor) e tem limite de 64 caracteres.
+            lock_name = f"{DB_NAME}:{lock_name}"[:64]
+            row = query_one_in(conn, "SELECT GET_LOCK(%s, %s) AS ok", (lock_name, lock_timeout))
+            if not row or row["ok"] != 1:
+                raise TimeoutError(f"Não foi possível obter a trava '{lock_name}'")
+            travado = True
+
         yield conn
         conn.commit()
     except Exception:
         conn.rollback()
         raise
     finally:
-        conn.close()
+        try:
+            if travado:
+                query_one_in(conn, "SELECT RELEASE_LOCK(%s) AS ok", (lock_name,))
+        finally:
+            conn.close()
 
 
 def query_all(sql, params=(), map_cls=None):

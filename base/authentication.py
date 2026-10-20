@@ -27,6 +27,32 @@ class authentication:
 
         return Token(token=auth).__dict__
 
+    # Prefixos de hash do Werkzeug -- mesma lista usada pelo Zion ADM
+    # (base/authentication.py de lá), pra reconhecer um valor já com hash
+    # sem precisar tentar check_password_hash em cima de texto puro (o que
+    # levantaria/engoliria exceção à toa).
+    _PREFIXOS_HASH = ("pbkdf2:", "scrypt:", "argon2")
+
+    @staticmethod
+    def verificar_senha(senha_informada: str, senha_armazenada: str | None) -> bool:
+        """Confere a senha aceitando tanto hash Werkzeug (gravado pelo Zion
+        ADM ao criar/editar um usuário) quanto texto puro legado (como
+        tb_usuario ainda guarda pra quem nunca teve a senha regravada por
+        lá). Mesma lógica de Zion_Adm/backend/base/authentication.py --
+        precisa ser idêntica aqui porque os dois sistemas leem/gravam a
+        mesma tb_usuario.
+        """
+        if senha_armazenada is None:
+            return False
+
+        if senha_armazenada.startswith(authentication._PREFIXOS_HASH):
+            try:
+                return check_password_hash(senha_armazenada, senha_informada)
+            except Exception:
+                return False
+
+        return senha_informada == senha_armazenada
+
     @staticmethod
     def verify_Token_Is_Active(token: str):
         b1 = bytes(token, encoding="raw_unicode_escape")
